@@ -1,8 +1,0 @@
-{
-  "$schema": "https://langchain-ai.github.io/langgraph/schemas/langgraph.json",
-  "graphs": {
-    "finance_erp_agent": "agent:finance_erp_graph"
-  },
-  "env": ".env",
-  "dependencies": [".", "pyproject.toml"]
-}
