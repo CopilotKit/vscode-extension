@@ -1,8 +1,0 @@
-{
-  "fixtures": [
-    {
-      "match": { "userMessage": "Respond with exactly: OK" },
-      "response": { "content": "OK" }
-    }
-  ]
-}
