@@ -841,6 +841,63 @@
         text-decoration: none;
       }
 
+      /* --- Cross-Nav Footer -------------------------------------------- */
+      .cross-nav-footer {
+        padding: 2rem 0;
+        border-top: 1px solid var(--border);
+      }
+      .cross-nav-toolbar {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 0 2rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+      }
+      .cn-label {
+        font-family: "JetBrains Mono", "SF Mono", "Fira Code", monospace;
+        font-size: 0.8rem;
+        color: var(--text-dim);
+        margin-right: 0.25rem;
+        white-space: nowrap;
+      }
+      .cn-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.35rem 0.85rem;
+        border: 1px solid var(--border);
+        border-radius: 100px;
+        font-family: "JetBrains Mono", "SF Mono", "Fira Code", monospace;
+        font-size: 0.75rem;
+        font-weight: 500;
+        color: var(--text-secondary);
+        text-decoration: none;
+        transition: border-color 0.2s, background 0.2s, color 0.2s;
+        white-space: nowrap;
+      }
+      .cn-pill:hover {
+        border-color: #3a3a50;
+        color: var(--text-primary);
+        text-decoration: none;
+        background: rgba(255, 255, 255, 0.03);
+      }
+      .cn-pill.active {
+        border-color: var(--accent);
+        background: var(--accent-glow);
+        color: var(--text-primary);
+        cursor: default;
+        pointer-events: none;
+      }
+      .cn-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+
       /* --- Mobile ----------------------------------------------------- */
       @media (max-width: 768px) {
         .nav-links {
@@ -868,12 +925,25 @@
         }
       }
 
+      @media (max-width: 640px) {
+        .cross-nav-toolbar {
+          gap: 0.4rem;
+        }
+        .cn-pill {
+          font-size: 0.7rem;
+          padding: 0.3rem 0.7rem;
+        }
+      }
+
       @media (max-width: 480px) {
         .hero {
           padding: 8rem 0 4rem;
         }
         .hero h1 {
           font-size: 2rem;
+        }
+        .cn-label {
+          display: none;
         }
       }
     </style>
@@ -1368,6 +1438,28 @@
         </div>
       </div>
     </section>
+
+    <!-- Cross-navigation toolbar -->
+    <div class="cross-nav-footer">
+      <div class="cross-nav-toolbar">
+        <span class="cn-label">copilotkit.dev /</span>
+        <a class="cn-pill active" href="https://vscode.copilotkit.dev">
+          <span class="cn-dot" style="background:#aa66ff"></span>vscode
+        </a>
+        <a class="cn-pill" href="https://aimock.copilotkit.dev">
+          <span class="cn-dot" style="background:#00ff88"></span>aimock
+        </a>
+        <a class="cn-pill" href="https://oversight.copilotkit.dev">
+          <span class="cn-dot" style="background:#ff6688"></span>oversight
+        </a>
+        <a class="cn-pill" href="https://pathfinder.copilotkit.dev">
+          <span class="cn-dot" style="background:#00ccff"></span>pathfinder
+        </a>
+        <a class="cn-pill" href="https://outpost.copilotkit.dev">
+          <span class="cn-dot" style="background:#f97316"></span>outpost
+        </a>
+      </div>
+    </div>
 
     <!-- --- Footer -------------------------------------------------- -->
     <footer>
