@@ -45,7 +45,7 @@
     "ignore": "^7.0.5",
     "oxc-parser": "^0.72.0",
     "rolldown": "^1.0.0-rc.15",
-    "zod": "^3.21.0",
+    "zod": "^4.3.6",
     "zod-to-json-schema": "^3.25.2"
   },
   "devDependencies": {
