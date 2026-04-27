@@ -128,7 +128,7 @@ jobs:
 
       - name: Login to Azure (OIDC → Entra SP)
         if: steps.check.outputs.published == 'false' || inputs.dry_run == true
-        uses: azure/login@v2
+        uses: azure/login@v3
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
