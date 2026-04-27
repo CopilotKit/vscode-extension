@@ -610,6 +610,14 @@
         margin-bottom: 1.5rem;
         margin-left: 3.25rem;
       }
+      .feature-desc ul {
+        margin: 0.5rem 0 0;
+        padding-left: 1.25rem;
+        list-style: disc;
+      }
+      .feature-desc li {
+        margin-bottom: 0.3rem;
+      }
       .feature-demo-grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
@@ -995,11 +1003,14 @@
             <div class="feature-number">1</div>
             <h3>A2UI Catalog Preview</h3>
           </div>
-          <p class="feature-desc">
-            Live-preview A2UI catalog components from your workspace. Pick a component and fixture,
-            see it rendered with hot-reload. Fixture files get inline validation: missing fields,
-            unknown types, typo suggestions, duplicate IDs, and protocol ordering violations.
-          </p>
+          <div class="feature-desc">
+            Live-preview A2UI catalog components directly from your workspace.
+            <ul>
+              <li>Pick any component and fixture &mdash; see it rendered with hot-reload</li>
+              <li>Inline validation catches missing fields, unknown types, and typos</li>
+              <li>Flags duplicate IDs and protocol ordering violations</li>
+            </ul>
+          </div>
           <div class="feature-demo-grid">
             <div class="demo-panel">
               <div class="demo-titlebar">
@@ -1051,12 +1062,14 @@
             <div class="feature-number">2</div>
             <h3>Hook Explorer (Generative UI)</h3>
           </div>
-          <p class="feature-desc">
-            Scans your workspace for all 28 CopilotKit hooks (V1 + V2 APIs): 16 render hooks and
-            12 data hooks. Renders each hook's generative UI in both in-progress and completed states
-            without running the full agent loop. CodeLens puts a clickable "Preview Component" lens
-            above every render-hook call-site.
-          </p>
+          <div class="feature-desc">
+            Scans your workspace for all 28 CopilotKit hooks &mdash; 16 render hooks and 12 data hooks across V1 + V2 APIs.
+            <ul>
+              <li>Renders generative UI in both in-progress and completed states</li>
+              <li>No full agent loop required &mdash; instant preview</li>
+              <li>CodeLens puts a clickable &ldquo;Preview Component&rdquo; lens above every render-hook call-site</li>
+            </ul>
+          </div>
           <div class="feature-demo-grid">
             <div class="demo-panel">
               <div class="demo-titlebar">
@@ -1109,12 +1122,16 @@
             <div class="feature-number">3</div>
             <h3>AG-UI Inspector</h3>
           </div>
-          <p class="feature-desc">
-            Connects to any AG-UI-compliant agent stream via the local runtime's <code>/cpk-debug-events</code>
-            SSE endpoint. Real-time event timeline with color-coded categories, filtering by event type,
-            agent ID, run ID, and free-text search. Collapsible JSON tree viewer for payload drill-down.
-            Auto-reconnect with exponential backoff. Available as sidebar view or full editor panel.
-          </p>
+          <div class="feature-desc">
+            Connects to any AG-UI-compliant agent stream via the local runtime's <code>/cpk-debug-events</code> SSE endpoint.
+            <ul>
+              <li>Real-time event timeline with color-coded categories</li>
+              <li>Filter by event type, agent ID, run ID, or free-text search</li>
+              <li>Collapsible JSON tree viewer for payload drill-down</li>
+              <li>Auto-reconnect with exponential backoff</li>
+              <li>Available as sidebar view or full editor panel</li>
+            </ul>
+          </div>
           <div class="feature-demo-grid">
             <div class="demo-panel">
               <div class="demo-titlebar">
