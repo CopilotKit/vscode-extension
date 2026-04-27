@@ -19,17 +19,18 @@
     "preview",
     "react"
   ],
-  "homepage": "https://copilotkit.ai",
+  "homepage": "https://vscode.copilotkit.dev",
   "bugs": {
-    "url": "https://github.com/CopilotKit/CopilotKit/issues"
+    "url": "https://github.com/CopilotKit/vscode-extension/issues"
   },
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/CopilotKit/CopilotKit"
+    "url": "https://github.com/CopilotKit/vscode-extension"
   },
   "publisher": "copilotkit",
   "type": "module",
+  "packageManager": "pnpm@10.13.1",
   "main": "dist/extension/activate.cjs",
   "scripts": {
     "build": "tsdown",
@@ -48,9 +49,10 @@
     "zod-to-json-schema": "^3.25.2"
   },
   "devDependencies": {
-    "@copilotkit/a2ui-renderer": "workspace:*",
-    "@copilotkit/react-core": "workspace:*",
-    "@copilotkit/typescript-config": "workspace:*",
+    "@copilotkit/a2ui-renderer": "^1.56.4",
+    "@copilotkit/react-core": "^1.56.4",
+    "@copilotkit/runtime-client-gql": "^1.56.4",
+    "@copilotkit/shared": "^1.56.4",
     "@testing-library/react": "^16.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",

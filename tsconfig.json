@@ -1,5 +1,4 @@
 {
-  "extends": "../tsconfig/base.json",
   "compilerOptions": {
     "target": "es2022",
     "module": "es2022",
@@ -7,12 +6,31 @@
     "jsx": "react-jsx",
     "types": ["vitest/globals"],
     "outDir": "dist",
-    "rootDir": "."
+    "rootDir": ".",
+    "sourceMap": true,
+    "composite": false,
+    "declaration": true,
+    "declarationMap": true,
+    "declarationDir": "./dist",
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "inlineSources": false,
+    "isolatedModules": true,
+    "moduleResolution": "node",
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "preserveWatchOutput": true,
+    "skipLibCheck": true,
+    "strict": true
   },
   "include": ["src/**/*", "test-workspace/**/*"],
   "exclude": [
     "dist",
+    "build",
     "node_modules",
+    "**/*.test.ts",
+    "**/*.test.tsx",
+    "**/__tests__/*",
     "src/extension/hooks/__tests__/fixtures/**"
   ]
 }
