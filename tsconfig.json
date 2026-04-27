@@ -4,7 +4,7 @@
     "module": "es2022",
     "lib": ["es2022", "dom"],
     "jsx": "react-jsx",
-    "types": ["vitest/globals"],
+    "types": ["node", "vitest/globals"],
     "outDir": "dist",
     "rootDir": ".",
     "sourceMap": true,
