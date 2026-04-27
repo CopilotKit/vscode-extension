@@ -4,34 +4,6 @@ import * as path from "node:path";
 
 const require = createRequire(import.meta.url);
 
-// Resolve workspace packages to their TypeScript source instead of compiled
-// dist. This avoids CJS-to-ESM interop bugs in Rolldown (e.g., variable
-// shadowing in __commonJSMin wrappers that cause TDZ errors).
-const workspaceSourceAliases: Record<string, string> = {
-  "@copilotkit/a2ui-renderer": path.resolve(
-    import.meta.dirname,
-    "../a2ui-renderer/src/index.ts",
-  ),
-  // @copilotkit/shared ships a CJS dist (e.g. utils/clipboard.cjs) that
-  // rolldown wraps in __commonJSMin. Those wrappers trigger TDZ errors
-  // ("Cannot access 'require_clipboard' before initialization") when the
-  // bundle has circular imports through the markdown/chat chain. Resolving
-  // to TS source dodges the CJS wrapper entirely.
-  "@copilotkit/shared": path.resolve(
-    import.meta.dirname,
-    "../shared/src/index.ts",
-  ),
-  // Same __commonJSMin TDZ pattern — dist wraps `graphql` (the npm lib,
-  // CJS) and initialisation order breaks under circular imports from
-  // react-core's runtime client:
-  //   Uncaught ReferenceError: Cannot access 'require_graphql' before initialization
-  // TS source uses ESM imports that rolldown handles cleanly.
-  "@copilotkit/runtime-client-gql": path.resolve(
-    import.meta.dirname,
-    "../runtime-client-gql/src/index.ts",
-  ),
-};
-
 /**
  * Rolldown plugin that resolves bare specifiers using Node's module
  * resolution. Needed because pnpm's strict node_modules doesn't hoist
@@ -50,11 +22,6 @@ function nodeResolveFallback() {
         source === "vscode"
       ) {
         return null;
-      }
-
-      // Resolve workspace packages to TypeScript source
-      if (source in workspaceSourceAliases) {
-        return { id: workspaceSourceAliases[source], external: false };
       }
 
       try {
