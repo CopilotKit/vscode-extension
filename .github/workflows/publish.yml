@@ -338,7 +338,7 @@ jobs:
         if: inputs.dry_run != true && steps.check.outputs.published == 'false' && env.SLACK_WEBHOOK_OSS_ALERTS != ''
         env:
           SLACK_WEBHOOK_OSS_ALERTS: ${{ secrets.SLACK_WEBHOOK_OSS_ALERTS }}
-        uses: slackapi/slack-github-action@v2.1.0
+        uses: slackapi/slack-github-action@v3.0.2
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_OSS_ALERTS }}
           webhook-type: incoming-webhook
@@ -360,7 +360,7 @@ jobs:
         if: failure() && inputs.dry_run != true && steps.check.outputs.published == 'false' && env.SLACK_WEBHOOK_OSS_ALERTS != ''
         env:
           SLACK_WEBHOOK_OSS_ALERTS: ${{ secrets.SLACK_WEBHOOK_OSS_ALERTS }}
-        uses: slackapi/slack-github-action@v2.1.0
+        uses: slackapi/slack-github-action@v3.0.2
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_OSS_ALERTS }}
           webhook-type: incoming-webhook
