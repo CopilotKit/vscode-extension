@@ -30,9 +30,9 @@ Install from the Visual Studio Marketplace, or search for **"CopilotKit"** from 
 ## Links
 
 - Website — https://copilotkit.ai
-- GitHub — https://github.com/CopilotKit/CopilotKit
+- GitHub — https://github.com/CopilotKit/vscode-extension
 - Docs — https://docs.copilotkit.ai
 
 ## Feedback
 
-Bugs and feature requests → https://github.com/CopilotKit/CopilotKit/issues
+Bugs and feature requests → https://github.com/CopilotKit/vscode-extension/issues

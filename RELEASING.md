@@ -11,7 +11,7 @@ The flow mirrors the [`CopilotKit/aimock`](https://github.com/CopilotKit/aimock)
 
 Cutting a release is one file edit, one commit, one PR.
 
-1. Prepend an entry to `packages/vscode-extension/CHANGELOG.md`:
+1. Prepend an entry to `CHANGELOG.md`:
 
    ```md
    ## 0.1.1 — 2026-04-22
@@ -27,11 +27,11 @@ Cutting a release is one file edit, one commit, one PR.
 
    Use Keep-a-Changelog subsections: `Added`, `Changed`, `Fixed`, `Removed`, `Deprecated`, `Security`. The date is whatever date you commit.
 
-   If you also want to change how the extension is described on the Marketplace / Open VSX listing page, edit the first paragraph under the `# CopilotKit for VS Code` title in `packages/vscode-extension/README.md` in the same PR. The metadata-sync workflow extracts that paragraph, strips inline markdown, and writes it to `package.json.description` (the field both registries render as the one-liner). First paragraph must stay ≤200 chars — the workflow fails fast otherwise so you don't silently ship a truncated listing.
+   If you also want to change how the extension is described on the Marketplace / Open VSX listing page, edit the first paragraph under the `# CopilotKit for VS Code` title in `README.md` in the same PR. The metadata-sync workflow extracts that paragraph, strips inline markdown, and writes it to `package.json.description` (the field both registries render as the one-liner). First paragraph must stay ≤200 chars — the workflow fails fast otherwise so you don't silently ship a truncated listing.
 
 2. Commit with any message (e.g. `docs: changelog for 0.1.1`) and push.
 3. Open a PR.
-4. **Automation**: the **VS Code Extension — Metadata Sync** workflow runs on your PR, reads the top version from CHANGELOG and the first paragraph of README.md, and bumps `packages/vscode-extension/package.json` (`.version` and/or `.description`) to match. If a version bump is needed it commits `chore: release vX.Y.Z`; otherwise, if only the description drifted it commits `chore(vscode-extension): sync description from README`. No action needed from you — just pull the updated branch if you keep working locally.
+4. **Automation**: the **VS Code Extension — Metadata Sync** workflow runs on your PR, reads the top version from CHANGELOG and the first paragraph of README.md, and bumps `package.json` (`.version` and/or `.description`) to match. If a version bump is needed it commits `chore: release vX.Y.Z`; otherwise, if only the description drifted it commits `chore(vscode-extension): sync description from README`. No action needed from you — just pull the updated branch if you keep working locally.
 5. Review, merge with a merge commit (NOT squash — the `chore: release` commit needs to land on `main` so the publish workflow's path filter fires).
 
 On merge, CI auto-publishes to the VS Code Marketplace and Open VSX, tags `vscode-extension-vX.Y.Z`, cuts a GitHub Release, and posts to `#oss-alerts`.
@@ -42,9 +42,9 @@ If the sync workflow is down or you can't wait, bump `package.json` yourself in 
 
 ## CI publish flow
 
-On every push to `main` under `packages/vscode-extension/**`, `.github/workflows/publish-vscode-extension.yml` runs:
+On every push to `main`, `.github/workflows/publish-vscode-extension.yml` runs:
 
-1. Reads `version` from `packages/vscode-extension/package.json`.
+1. Reads `version` from `package.json`.
 2. Calls `vsce show <publisher>.<name>` and checks whether that exact version is already listed on the Marketplace.
 3. If already published → no-op (green, zero side effects). This makes every non-release push to main safe.
 4. Otherwise: install, build, `vsce package` → single `extension.vsix`, upload artifact.
@@ -54,7 +54,7 @@ On every push to `main` under `packages/vscode-extension/**`, `.github/workflows
 8. Cut a GitHub Release using the CHANGELOG section for that version (or auto-generated notes if absent).
 9. Post a Slack message to `SLACK_WEBHOOK` if configured.
 
-The federated credential on the Entra SP is pinned to subject `repo:CopilotKit/CopilotKit:environment:production`, which means the workflow's `environment: production` must match **exactly** (case-sensitive) for the OIDC token exchange to succeed.
+The federated credential on the Entra SP is pinned to subject `repo:CopilotKit/vscode-extension:environment:production`, which means the workflow's `environment: production` must match **exactly** (case-sensitive) for the OIDC token exchange to succeed.
 
 Both publishes use `continue-on-error` so a partial failure is visible. The final "Report publish results" step fails the job if either registry ultimately failed — you never land in "Marketplace succeeded, Open VSX silently skipped."
 
@@ -100,7 +100,7 @@ After CI goes green:
 If a bad version ships:
 
 1. Fix the regression on a branch, open a PR, land it on `main`.
-2. Prepend a new `## X.Y.Z — <date>` entry with a `### Fixed` subsection to `packages/vscode-extension/CHANGELOG.md` (patch-bumping the version), open a PR, and merge. The metadata-sync workflow auto-commits the corresponding `package.json` bump as `chore: release vX.Y.Z` on the PR branch — same flow as a normal release.
+2. Prepend a new `## X.Y.Z — <date>` entry with a `### Fixed` subsection to `CHANGELOG.md` (patch-bumping the version), open a PR, and merge. The metadata-sync workflow auto-commits the corresponding `package.json` bump as `chore: release vX.Y.Z` on the PR branch — same flow as a normal release.
 3. If the regression is severe enough to warrant pulling the listing, the Marketplace / Open VSX admin UIs each offer a per-version unlist (different from unpublish) — use that as a last resort; prefer shipping forward.
 
 ## Rollback guidance
@@ -110,7 +110,7 @@ If a bad version ships:
 If the `Login to Azure` or `Verify Marketplace credential` step fails on the first OIDC publish, check these in order:
 
 1. **SP not added as Contributor on the Marketplace publisher.** `copilotkit-vscode-publish` must be a member of the `copilotkit` publisher at <https://marketplace.visualstudio.com/manage/publishers/copilotkit> with the Contributor (or higher) role.
-2. **Federated credential subject mismatch.** The credential on the Entra app must have subject **exactly** `repo:CopilotKit/CopilotKit:environment:production` (case-sensitive, no trailing slash). The workflow's `environment: production` must match that subject byte-for-byte.
+2. **Federated credential subject mismatch.** The credential on the Entra app must have subject **exactly** `repo:CopilotKit/vscode-extension:environment:production` (case-sensitive, no trailing slash). The workflow's `environment: production` must match that subject byte-for-byte.
 3. **Tenant conditional access policy blocking workload identities.** The copilotkit.ai tenant may have CA policies that block service principals from non-corporate IPs. Check Entra → Security → Conditional Access and exclude the `copilotkit-vscode-publish` SP from any policy that filters on location.
 4. **Missing `permissions: id-token: write` on the `publish` job.** Without this, GitHub will not mint an OIDC token and `azure/login@v2` will fail with "Unable to get ACTIONS_ID_TOKEN_REQUEST_URL env variable".
 
@@ -128,7 +128,7 @@ Once OIDC publishing has been confirmed green in CI at least once, **delete `VSC
 ## Notes and future work
 
 - **ADO PAT retirement (2026-12-01):** Azure DevOps is sunsetting long-lived Marketplace PATs. This workflow has been migrated to OIDC / federated credentials ahead of that date; `VSCE_PAT` is retained only as a short-lived rollback lever (see above).
-- **If the npm monorepo release pipeline ever needs to coordinate with VSIX releases** (e.g. pin the extension to a known-good `@copilotkit/*` version), extend `release.config.json` with a `vscode-extension` scope and gate it on the same version-on-main trigger — do not try to bolt VSIX publishing onto `scripts/release/publish-release.ts` which is npm-only.
+- **If a release needs to pin to a specific `@copilotkit/*` version**, bump the dependency in `package.json` as part of the same PR that updates the CHANGELOG.
 
 ---
 
