@@ -49,10 +49,10 @@
     "zod-to-json-schema": "^3.25.2"
   },
   "devDependencies": {
-    "@copilotkit/a2ui-renderer": "^1.56.4",
-    "@copilotkit/react-core": "^1.56.4",
-    "@copilotkit/runtime-client-gql": "^1.56.4",
-    "@copilotkit/shared": "^1.56.4",
+    "@copilotkit/a2ui-renderer": "^1.56.5",
+    "@copilotkit/react-core": "^1.56.5",
+    "@copilotkit/runtime-client-gql": "^1.56.5",
+    "@copilotkit/shared": "^1.56.5",
     "@types/node": "^22.0.0",
     "@testing-library/react": "^16.0.0",
     "@types/react": "^19.0.0",
