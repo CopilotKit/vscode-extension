@@ -2,35 +2,26 @@
   "compilerOptions": {
     "target": "es2022",
     "module": "es2022",
-    "lib": ["es2022", "dom"],
+    "moduleResolution": "bundler",
+    "lib": ["es2022", "dom", "dom.iterable"],
     "jsx": "react-jsx",
-    "types": ["node", "vitest/globals"],
+    "types": ["vitest/globals"],
     "outDir": "dist",
     "rootDir": ".",
-    "sourceMap": true,
-    "composite": false,
     "declaration": true,
     "declarationMap": true,
-    "declarationDir": "./dist",
     "esModuleInterop": true,
-    "forceConsistentCasingInFileNames": true,
-    "inlineSources": false,
     "isolatedModules": true,
-    "moduleResolution": "node",
-    "noUnusedLocals": false,
-    "noUnusedParameters": false,
-    "preserveWatchOutput": true,
+    "moduleDetection": "force",
+    "resolveJsonModule": true,
     "skipLibCheck": true,
     "strict": true
   },
   "include": ["src/**/*", "test-workspace/**/*"],
   "exclude": [
     "dist",
-    "build",
     "node_modules",
-    "**/*.test.ts",
-    "**/*.test.tsx",
-    "**/__tests__/*",
-    "src/extension/hooks/__tests__/fixtures/**"
+    "src/extension/hooks/__tests__/fixtures/**",
+    "src/extension/playground/__tests__/fixtures/**"
   ]
 }

@@ -7,5 +7,11 @@ export default defineConfig({
       ["src/webview/**", "jsdom"],
       ["src/extension/**", "node"],
     ],
+    server: {
+      deps: {
+        inline: [/@copilotkit/],
+      },
+    },
+    setupFiles: ["./vitest.setup.ts"],
   },
 });

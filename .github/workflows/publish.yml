@@ -113,6 +113,10 @@ jobs:
         if: steps.check.outputs.published == 'false'
         run: pnpm build
 
+      - name: Strip [Unreleased] from CHANGELOG for packaging
+        if: steps.check.outputs.published == 'false'
+        run: python3 -c "import re,pathlib;p=pathlib.Path('CHANGELOG.md');t=p.read_text();p.write_text(re.sub(r'## \[Unreleased\]\n.*?(?=\n## \d)','',t,flags=re.DOTALL) if '## [Unreleased]' in t else t)"
+
       - name: Package VSIX
         if: steps.check.outputs.published == 'false'
         run: npx --yes @vscode/vsce@^3 package --no-dependencies --out extension.vsix

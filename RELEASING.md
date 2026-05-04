@@ -5,15 +5,23 @@ This package (`copilotkit-vscode-extension`) ships to two registries:
 - [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=copilotkit.copilotkit-vscode-extension) — primary, used by VS Code, Cursor, etc.
 - [Open VSX](https://open-vsx.org/extension/copilotkit/copilotkit-vscode-extension) — used by VSCodium, Gitpod, OpenVSCode Server, Theia-based IDEs.
 
-The flow mirrors the [`CopilotKit/aimock`](https://github.com/CopilotKit/aimock) release model for publish: a `chore: release vX.Y.Z` commit on `main` triggers CI, which self-gates on whether the version is already live and publishes if not. Unlike aimock, contributors don't hand-edit `package.json` — the **VS Code Extension — Metadata Sync** workflow (`.github/workflows/vscode-extension-changelog-sync.yml`) auto-syncs `package.json.version` (and optionally `package.json.description`) from the CHANGELOG entry (and optionally the README.md first paragraph) when the PR is opened, and commits `chore: release vX.Y.Z` on the PR branch for you. **No tag is created by hand. No `vsce publish` is run by hand.**
+The flow mirrors the [`CopilotKit/aimock`](https://github.com/CopilotKit/aimock) release model for publish: a `chore: release vX.Y.Z` commit on `main` triggers CI, which self-gates on whether the version is already live and publishes if not. Unlike aimock, contributors don't hand-edit `package.json` — the **VS Code Extension — Metadata Sync** workflow (`.github/workflows/changelog-sync.yml`) auto-syncs `package.json.version` (and optionally `package.json.description`) from the CHANGELOG entry (and optionally the README.md first paragraph) when the PR is opened, and commits `chore: release vX.Y.Z` on the PR branch for you. **No tag is created by hand. No `vsce publish` is run by hand.**
+
+## Day-to-day: the `[Unreleased]` section
+
+CHANGELOG.md always has an `## [Unreleased]` section at the top. When you merge a PR that adds a feature, fixes a bug, or changes behavior, add a bullet under the appropriate subsection (`Added`, `Changed`, `Fixed`, `Removed`, `Deprecated`, `Security`) in `[Unreleased]`. This keeps a running record so release notes don't have to be reconstructed from git history.
+
+The `[Unreleased]` heading is ignored by the changelog-sync workflow (it only matches `## X.Y.Z` headings), so it's always safe to accumulate entries there.
 
 ## Cutting a release
 
 Cutting a release is one file edit, one commit, one PR.
 
-1. Prepend an entry to `CHANGELOG.md`:
+1. Move the `[Unreleased]` entries into a new versioned section in `CHANGELOG.md`. Replace the unreleased content with a fresh empty section:
 
    ```md
+   ## [Unreleased]
+
    ## 0.1.1 — 2026-04-22
 
    ### Fixed
@@ -42,7 +50,7 @@ If the sync workflow is down or you can't wait, bump `package.json` yourself in 
 
 ## CI publish flow
 
-On every push to `main`, `.github/workflows/publish-vscode-extension.yml` runs:
+On every push to `main`, `.github/workflows/publish.yml` runs:
 
 1. Reads `version` from `package.json`.
 2. Calls `vsce show <publisher>.<name>` and checks whether that exact version is already listed on the Marketplace.
@@ -118,7 +126,7 @@ If the `Login to Azure` or `Verify Marketplace credential` step fails on the fir
 
 `VSCE_PAT` is retained in the `production` environment secrets specifically as a rollback lever for this cutover window. To revert:
 
-1. Check out `.github/workflows/publish-vscode-extension.yml`, replace `--azure-credential` with `--pat "$VSCE_PAT"`, and re-add the `env: { VSCE_PAT: ${{ secrets.VSCE_PAT }} }` block on the `Publish to VS Code Marketplace` step.
+1. Check out `.github/workflows/publish.yml`, replace `--azure-credential` with `--pat "$VSCE_PAT"`, and re-add the `env: { VSCE_PAT: ${{ secrets.VSCE_PAT }} }` block on the `Publish to VS Code Marketplace` step.
 2. Push. Ship the release. Debug OIDC out of band.
 
 ### Retiring the PAT
@@ -128,7 +136,7 @@ Once OIDC publishing has been confirmed green in CI at least once, **delete `VSC
 ## Notes and future work
 
 - **ADO PAT retirement (2026-12-01):** Azure DevOps is sunsetting long-lived Marketplace PATs. This workflow has been migrated to OIDC / federated credentials ahead of that date; `VSCE_PAT` is retained only as a short-lived rollback lever (see above).
-- **If a release needs to pin to a specific `@copilotkit/*` version**, bump the dependency in `package.json` as part of the same PR that updates the CHANGELOG.
+- **Coordinating with `@copilotkit/*` releases:** When a new CopilotKit SDK version ships breaking changes, bump the `@copilotkit/*` dependency versions in `package.json` and include a changelog entry noting the pin update.
 
 ---
 
