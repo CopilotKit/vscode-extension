@@ -76,7 +76,7 @@ export function App(): React.ReactElement {
 
         const newCatalog = findCatalogInExports(catalogExport);
         if (newCatalog) {
-          setCatalog(newCatalog);
+          setCatalog(newCatalog as typeof basicCatalog);
           setCatalogVersion((v) => v + 1);
           setError(null);
 
@@ -84,7 +84,7 @@ export function App(): React.ReactElement {
           // and send it back to the extension host for fixture validation.
           try {
             const schema = extractCatalogComponentSchemas(
-              newCatalog,
+              newCatalog as typeof basicCatalog,
             ) as unknown as import("../extension/types").ComponentSchemaEntry[];
             bridge.send({ type: "catalog-schema", schema });
           } catch {
