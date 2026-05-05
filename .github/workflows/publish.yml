@@ -239,8 +239,12 @@ jobs:
             local i output rc wait
             for (( i=1; i<=attempts; i++ )); do
               echo "::group::vsce publish attempt $i/$attempts (${{ matrix.target }})"
-              output=$("$@" 2>&1)
-              rc=$?
+              # The if/else is load-bearing: GitHub runs `bash -e`, and a
+              # failed command substitution `output=$(cmd)` under set -e
+              # terminates the script *before* the echo below can run, so
+              # vsce/ovsx errors get swallowed silently. The if-form is
+              # explicitly handled by set -e and lets both branches set rc.
+              if output=$("$@" 2>&1); then rc=0; else rc=$?; fi
               echo "$output"
               echo "::endgroup::"
 
@@ -302,8 +306,12 @@ jobs:
             local i output rc wait
             for (( i=1; i<=attempts; i++ )); do
               echo "::group::ovsx publish attempt $i/$attempts (${{ matrix.target }})"
-              output=$("$@" 2>&1)
-              rc=$?
+              # The if/else is load-bearing: GitHub runs `bash -e`, and a
+              # failed command substitution `output=$(cmd)` under set -e
+              # terminates the script *before* the echo below can run, so
+              # vsce/ovsx errors get swallowed silently. The if-form is
+              # explicitly handled by set -e and lets both branches set rc.
+              if output=$("$@" 2>&1); then rc=0; else rc=$?; fi
               echo "$output"
               echo "::endgroup::"
 
