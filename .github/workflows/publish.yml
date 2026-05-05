@@ -1,16 +1,18 @@
 name: release / publish vscode-extension
 
-# Mirrors the CopilotKit/aimock release pattern:
+# Mirrors the CopilotKit/aimock release pattern, extended for native deps:
+#
 #   - Contributor bumps package.json + prepends CHANGELOG.md, commits as
 #     "chore(vscode-extension): release vX.Y.Z", and merges to main.
 #   - On push to main this workflow self-gates by checking the VS Code
 #     Marketplace for the current package.json version; if already published,
-#     it's a no-op. Otherwise it builds, packages, dual-publishes (Marketplace
-#     + Open VSX with retry wrappers), tags vscode-extension-vX.Y.Z, and
-#     cuts a GitHub Release.
-#
-# No hand-cut tags. No tag-driven triggers. Pushes merged to main drive
-# everything, exactly like aimock.
+#     it's a no-op.
+#   - Otherwise it builds + packages a platform-specific .vsix on a native
+#     runner per target (rolldown / oxc-parser / @tailwindcss/oxide ship
+#     per-platform native .node bindings; one universal .vsix would either
+#     bloat to 3-5x or crash on platforms whose binding is missing), then
+#     publishes each to Marketplace + Open VSX with retry wrappers, then
+#     tags vscode-extension-vX.Y.Z and cuts a GitHub Release.
 
 on:
   push:
@@ -31,25 +33,18 @@ permissions:
   id-token: write
 
 jobs:
-  publish:
+  prepare:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
-    environment: production
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.pkg.outputs.version }}
+      name: ${{ steps.pkg.outputs.name }}
+      publisher: ${{ steps.pkg.outputs.publisher }}
+      ext_id: ${{ steps.pkg.outputs.ext_id }}
+      published: ${{ steps.check.outputs.published }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v6
-        with:
-          version: "10.13.1"
-
-      - name: Setup Node
-        uses: actions/setup-node@v6
-        with:
-          node-version: 20.x
 
       - name: Read package.json version
         id: pkg
@@ -105,32 +100,77 @@ jobs:
             echo "published=false" >> "$GITHUB_OUTPUT"
           fi
 
+  package:
+    needs: prepare
+    if: needs.prepare.outputs.published == 'false'
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: win32-x64
+            runner: windows-latest
+          - target: linux-x64
+            runner: ubuntu-latest
+          - target: darwin-x64
+            runner: macos-13
+          - target: darwin-arm64
+            runner: macos-latest
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          version: "10.13.1"
+
+      - name: Setup Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20.x
+
       - name: Install dependencies
-        if: steps.check.outputs.published == 'false'
         run: pnpm install --frozen-lockfile
 
       - name: Build
-        if: steps.check.outputs.published == 'false'
         run: pnpm build
 
       - name: Strip [Unreleased] from CHANGELOG for packaging
-        if: steps.check.outputs.published == 'false'
+        shell: bash
         run: python3 -c "import re,pathlib;p=pathlib.Path('CHANGELOG.md');t=p.read_text();p.write_text(re.sub(r'## \[Unreleased\]\n.*?(?=\n## \d)','',t,flags=re.DOTALL) if '## [Unreleased]' in t else t)"
 
-      - name: Package VSIX
-        if: steps.check.outputs.published == 'false'
-        run: npx --yes @vscode/vsce@^3 package --no-dependencies --out extension.vsix
+      - name: Package VSIX (${{ matrix.target }})
+        shell: bash
+        run: npx --yes @vscode/vsce@^3 package --target ${{ matrix.target }} --out extension-${{ matrix.target }}.vsix
 
       - name: Upload VSIX artifact
-        if: steps.check.outputs.published == 'false'
         uses: actions/upload-artifact@v7
         with:
-          name: vscode-extension-v${{ steps.pkg.outputs.version }}
-          path: extension.vsix
+          name: vsix-${{ matrix.target }}
+          path: extension-${{ matrix.target }}.vsix
           if-no-files-found: error
 
+  publish:
+    needs: [prepare, package]
+    if: needs.prepare.outputs.published == 'false'
+    timeout-minutes: 15
+    environment: production
+    permissions:
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [win32-x64, linux-x64, darwin-x64, darwin-arm64]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download VSIX artifact (${{ matrix.target }})
+        uses: actions/download-artifact@v8
+        with:
+          name: vsix-${{ matrix.target }}
+
       - name: Login to Azure (OIDC → Entra SP)
-        if: steps.check.outputs.published == 'false' || inputs.dry_run == true
         uses: azure/login@v3
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
@@ -138,11 +178,9 @@ jobs:
           subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
 
       - name: Verify Marketplace credential
-        if: steps.check.outputs.published == 'false' || inputs.dry_run == true
         run: npx --yes @vscode/vsce@^3 verify-pat --azure-credential copilotkit
 
       - name: Verify Open VSX credential
-        if: steps.check.outputs.published == 'false' || inputs.dry_run == true
         env:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
         run: |
@@ -161,8 +199,8 @@ jobs:
           fi
           echo "::endgroup::"
 
-      - name: Publish to VS Code Marketplace
-        if: inputs.dry_run != true && steps.check.outputs.published == 'false'
+      - name: Publish to VS Code Marketplace (${{ matrix.target }})
+        if: inputs.dry_run != true
         id: publish_vsce
         continue-on-error: true
         run: |
@@ -176,7 +214,7 @@ jobs:
             local backoff=(10 20 40 60 90)
             local i output rc wait
             for (( i=1; i<=attempts; i++ )); do
-              echo "::group::vsce publish attempt $i/$attempts"
+              echo "::group::vsce publish attempt $i/$attempts (${{ matrix.target }})"
               output=$("$@" 2>&1)
               rc=$?
               echo "$output"
@@ -187,9 +225,9 @@ jobs:
                 return 0
               fi
 
-              # Idempotent success: version already published (likely by a prior attempt).
+              # Idempotent success: version+target already published (likely by a prior attempt).
               if echo "$output" | grep -qiE 'already exists|already published|version.*(is )?already|extension.*version.*exists'; then
-                echo "Version already exists — treating as idempotent success (likely landed on a prior attempt)"
+                echo "Version+target already exists — treating as idempotent success (likely landed on a prior attempt)"
                 return 0
               fi
 
@@ -211,13 +249,15 @@ jobs:
             done
           }
 
+          # `--target` is read from the .vsix manifest (set at package time),
+          # but pass it explicitly to make the matrix entry self-documenting.
           retry_publish npx --yes @vscode/vsce@^3 publish \
-            --no-dependencies \
-            --packagePath extension.vsix \
+            --target ${{ matrix.target }} \
+            --packagePath extension-${{ matrix.target }}.vsix \
             --azure-credential
 
-      - name: Publish to Open VSX
-        if: inputs.dry_run != true && steps.check.outputs.published == 'false'
+      - name: Publish to Open VSX (${{ matrix.target }})
+        if: inputs.dry_run != true
         id: publish_ovsx
         continue-on-error: true
         env:
@@ -237,7 +277,7 @@ jobs:
             local backoff=(10 20 40 60 90)
             local i output rc wait
             for (( i=1; i<=attempts; i++ )); do
-              echo "::group::ovsx publish attempt $i/$attempts"
+              echo "::group::ovsx publish attempt $i/$attempts (${{ matrix.target }})"
               output=$("$@" 2>&1)
               rc=$?
               echo "$output"
@@ -248,9 +288,9 @@ jobs:
                 return 0
               fi
 
-              # Idempotent success: version already published (likely by a prior attempt).
+              # Idempotent success: version+target already published (likely by a prior attempt).
               if echo "$output" | grep -qiE 'already exists|already published|version.*(is )?already|extension.*version.*exists'; then
-                echo "Version already exists — treating as idempotent success (likely landed on a prior attempt)"
+                echo "Version+target already exists — treating as idempotent success (likely landed on a prior attempt)"
                 return 0
               fi
 
@@ -273,30 +313,52 @@ jobs:
             done
           }
 
-          retry_publish npx --yes ovsx publish extension.vsix -p "$OVSX_PAT"
+          retry_publish npx --yes ovsx publish \
+            --target ${{ matrix.target }} \
+            --packagePath extension-${{ matrix.target }}.vsix \
+            -p "$OVSX_PAT"
 
-      - name: Report publish results
-        if: inputs.dry_run != true && steps.check.outputs.published == 'false'
-        id: report
+      - name: Report publish results (${{ matrix.target }})
+        if: inputs.dry_run != true
         run: |
           VSCE_STATUS="${{ steps.publish_vsce.outcome }}"
           OVSX_STATUS="${{ steps.publish_ovsx.outcome }}"
+          echo "Target: ${{ matrix.target }}"
           echo "VS Code Marketplace: $VSCE_STATUS"
           echo "Open VSX:            $OVSX_STATUS"
           # Each publish step retries transient 5xx/timeouts up to 5x with backoff
-          # and treats "version already exists" as idempotent success. A step
-          # outcome of "failure" here means the final attempt failed for a
+          # and treats "version+target already exists" as idempotent success. A
+          # step outcome of "failure" here means the final attempt failed for a
           # non-retryable reason (auth, validation) or exhausted retries on a
-          # persistent 5xx — either way, fail the job.
+          # persistent 5xx — either way, fail this matrix entry.
           if [ "$VSCE_STATUS" != "success" ] || [ "$OVSX_STATUS" != "success" ]; then
-            echo "::error::One or more registry publishes failed after retries (vsce=$VSCE_STATUS ovsx=$OVSX_STATUS). Check the per-attempt logs above. Rerun the job from the Actions UI to retry — do NOT bump the version; registries treat 'already exists' as idempotent."
+            echo "::error::One or more registry publishes failed for ${{ matrix.target }} after retries (vsce=$VSCE_STATUS ovsx=$OVSX_STATUS). Check the per-attempt logs above. Rerun the job from the Actions UI to retry — do NOT bump the version; registries treat 'already exists' as idempotent."
             exit 1
           fi
 
-      - name: Create git tag
-        if: inputs.dry_run != true && steps.check.outputs.published == 'false'
+      - name: Dry-run summary (${{ matrix.target }})
+        if: inputs.dry_run == true
         run: |
-          TAG="vscode-extension-v${{ steps.pkg.outputs.version }}"
+          echo "Dry run complete for ${{ matrix.target }}. Auth chains validated:"
+          echo "   - Marketplace: OIDC -> Entra SP -> vsce verify-pat --azure-credential"
+          echo "   - Open VSX: bearer token -> /api/user"
+
+  finalize:
+    needs: [prepare, publish]
+    if: needs.prepare.outputs.published == 'false' && inputs.dry_run != true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create git tag
+        run: |
+          TAG="vscode-extension-v${{ needs.prepare.outputs.version }}"
           if ! git rev-parse "${TAG}" >/dev/null 2>&1; then
             git tag "${TAG}"
             git push origin "${TAG}"
@@ -305,11 +367,10 @@ jobs:
           fi
 
       - name: Create GitHub Release
-        if: inputs.dry_run != true && steps.check.outputs.published == 'false'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="vscode-extension-v${{ steps.pkg.outputs.version }}"
+          TAG="vscode-extension-v${{ needs.prepare.outputs.version }}"
           if gh release view "${TAG}" >/dev/null 2>&1; then
             echo "Release ${TAG} already exists — skipping."
             exit 0
@@ -319,7 +380,7 @@ jobs:
           CHANGELOG="CHANGELOG.md"
           NOTES_FILE=""
           if [ -f "$CHANGELOG" ]; then
-            VERSION="${{ steps.pkg.outputs.version }}"
+            VERSION="${{ needs.prepare.outputs.version }}"
             # Extract the section between "## <version>" and the next "## " heading.
             NOTES_FILE=$(mktemp)
             awk -v ver="$VERSION" '
@@ -338,7 +399,7 @@ jobs:
           fi
 
       - name: Notify Slack (published)
-        if: inputs.dry_run != true && steps.check.outputs.published == 'false' && env.SLACK_WEBHOOK_OSS_ALERTS != ''
+        if: env.SLACK_WEBHOOK_OSS_ALERTS != ''
         env:
           SLACK_WEBHOOK_OSS_ALERTS: ${{ secrets.SLACK_WEBHOOK_OSS_ALERTS }}
         uses: slackapi/slack-github-action@v3.0.2
@@ -347,20 +408,27 @@ jobs:
           webhook-type: incoming-webhook
           payload: |
             {
-              "text": ":package: *copilotkit-vscode-extension v${{ steps.pkg.outputs.version }} published*\nMarketplace: https://marketplace.visualstudio.com/items?itemName=${{ steps.pkg.outputs.ext_id }}\nOpen VSX: https://open-vsx.org/extension/${{ steps.pkg.outputs.publisher }}/${{ steps.pkg.outputs.name }}\nRelease: https://github.com/${{ github.repository }}/releases/tag/vscode-extension-v${{ steps.pkg.outputs.version }}"
+              "text": ":package: *copilotkit-vscode-extension v${{ needs.prepare.outputs.version }} published* (4 platform targets)\nMarketplace: https://marketplace.visualstudio.com/items?itemName=${{ needs.prepare.outputs.ext_id }}\nOpen VSX: https://open-vsx.org/extension/${{ needs.prepare.outputs.publisher }}/${{ needs.prepare.outputs.name }}\nRelease: https://github.com/${{ github.repository }}/releases/tag/vscode-extension-v${{ needs.prepare.outputs.version }}"
             }
 
-      - name: Dry-run summary
-        if: inputs.dry_run == true
-        run: |
-          echo "Dry run complete. Auth chains validated:"
-          echo "   - Marketplace: OIDC -> Entra SP -> vsce verify-pat --azure-credential"
-          echo "   - Open VSX: bearer token -> /api/user"
-          echo ""
-          echo "No publish occurred. To cut a real release, add a new entry to CHANGELOG.md and open a PR."
-
+  notify-failure:
+    needs: [prepare, package, publish, finalize]
+    # `always()` — run even when an upstream job fails. Then surface a Slack
+    # alert only if any pipeline job actually failed (skipped jobs from a
+    # version-already-published short-circuit are not failures).
+    if: |
+      always()
+      && inputs.dry_run != true
+      && (needs.prepare.result == 'failure'
+          || needs.package.result == 'failure'
+          || needs.publish.result == 'failure'
+          || needs.finalize.result == 'failure')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: production
+    steps:
       - name: Notify Slack (publish failure)
-        if: failure() && inputs.dry_run != true && steps.check.outputs.published == 'false' && env.SLACK_WEBHOOK_OSS_ALERTS != ''
+        if: env.SLACK_WEBHOOK_OSS_ALERTS != ''
         env:
           SLACK_WEBHOOK_OSS_ALERTS: ${{ secrets.SLACK_WEBHOOK_OSS_ALERTS }}
         uses: slackapi/slack-github-action@v3.0.2
@@ -369,5 +437,5 @@ jobs:
           webhook-type: incoming-webhook
           payload: |
             {
-              "text": ":x: *copilotkit-vscode-extension v${{ steps.pkg.outputs.version }} publish failed*\nFailed job: ${{ github.job }} | vsce=${{ steps.publish_vsce.outcome }} ovsx=${{ steps.publish_ovsx.outcome }}\n<https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>"
+              "text": ":x: *copilotkit-vscode-extension v${{ needs.prepare.outputs.version }} publish failed*\nprepare=${{ needs.prepare.result }} package=${{ needs.package.result }} publish=${{ needs.publish.result }} finalize=${{ needs.finalize.result }}\n<https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>"
             }

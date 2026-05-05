@@ -1,7 +1,7 @@
 {
   "name": "copilotkit-vscode-extension",
   "displayName": "CopilotKit",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Preview generative-UI components, explore CopilotKit hooks, and inspect AG-UI agent runs — all without leaving your editor.",
   "categories": [
     "Other",
@@ -38,7 +38,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "vscode:prepublish": "pnpm run build",
-    "package": "vsce package --no-dependencies"
+    "package": "vsce package"
   },
   "dependencies": {
     "@ag-ui/client": "0.0.52",
@@ -46,6 +46,7 @@
     "@tailwindcss/node": "^4.1.0",
     "@tailwindcss/oxide": "^4.1.0",
     "ignore": "^7.0.5",
+    "openai": "^6.36.0",
     "oxc-parser": "^0.72.0",
     "rolldown": "^1.0.0-rc.15",
     "tailwindcss": "^4.1.0",

@@ -19,9 +19,21 @@ const playgroundSourceAliases: Record<string, string> = {
 };
 
 /**
- * Rolldown plugin that resolves bare specifiers using Node's module
- * resolution. Needed because pnpm's strict node_modules doesn't hoist
- * transitive dependencies (e.g., zod from @copilotkit/a2ui-renderer).
+ * Rolldown plugin that intervenes in module resolution for two cases:
+ *
+ *   1. Workspace alias map (used in monorepo dev to point at TS source).
+ *      Empty in this standalone repo.
+ *   2. ESM-path override for packages whose CJS dist triggers rolldown's
+ *      `__commonJSMin` TDZ-shadow bug — `const require_X = require_X();`
+ *      collides between rolldown's wrapper name and the local destructure.
+ *      We force these to their ESM entry so they're inlined directly.
+ *
+ * Everything else falls through to rolldown's native resolver, which
+ * correctly picks `browser`/`node`/`import`/`require` conditions based on
+ * the platform and the importer's module type. The pre-existing version
+ * of this plugin tried to globally prefer ESM for all deps to dodge the
+ * TDZ trap, but that hijacks resolution decisions rolldown is better at
+ * making (e.g. picking `node-fetch`'s `browser` condition for webviews).
  *
  * @param aliases - optional extra alias map applied before Node resolution.
  *   Defaults to `workspaceSourceAliases`.
@@ -32,8 +44,7 @@ function nodeResolveFallback(
   return {
     name: "node-resolve-fallback",
     enforce: "pre" as const,
-    resolveId(source: string) {
-      // Skip relative, absolute, node builtins, and vscode
+    resolveId(source: string, importer?: string) {
       if (
         source.startsWith(".") ||
         path.isAbsolute(source) ||
@@ -43,27 +54,69 @@ function nodeResolveFallback(
         return null;
       }
 
-      // Resolve workspace packages to TypeScript source
       if (source in aliases) {
         return { id: aliases[source], external: false };
       }
 
-      // Resolve the package, preferring the ESM ("import" condition) entry
-      // when the package ships both. `require.resolve()` alone picks the
-      // `.cjs` path, which rolldown then wraps with __commonJSMin — that
-      // wrapping triggers TDZ bugs for CJS dists that use common patterns
-      // like `const foo = require_foo();` where the local `foo` shadows the
-      // outer wrapper variable name (see @tanstack/pacer/dist/index.cjs).
-      // Prefer ESM to keep rolldown on a clean compile path.
-      try {
-        const cjsPath = require.resolve(source);
-        const esmPath = resolveEsmEntry(source, cjsPath);
-        return { id: esmPath ?? cjsPath, external: false };
-      } catch {
-        return null;
+      if (importer && ESM_PATH_OVERRIDES.has(source)) {
+        const cjsPath = tryResolve(source, importer);
+        if (cjsPath) {
+          const esmPath = resolveEsmEntry(source, cjsPath);
+          if (esmPath) return { id: esmPath, external: false };
+        }
       }
+
+      return null;
     },
   };
+}
+
+/**
+ * Packages whose CJS dist triggers rolldown's `__commonJSMin` TDZ-shadow
+ * bug — `const require_X = require_X();` where the local `const` shadows
+ * the wrapper of the same name. We force these to resolve to their ESM
+ * entry so they're inlined directly (no `__commonJSMin` wrapping).
+ *
+ * `@tanstack/pacer/dist/index.cjs` is the original example; it's pulled
+ * in transitively by `@copilotkit/core`. Add to this set if a future
+ * dependency hits the same pattern (look for the wrapper-name collision
+ * in the bundled output).
+ */
+const ESM_PATH_OVERRIDES = new Set<string>([
+  "@tanstack/pacer",
+  "@tanstack/devtools-event-client",
+  "@copilotkit/shared",
+]);
+
+/**
+ * Resolves a bare specifier from the importer's directory using
+ * `createRequire`. Returns the resolved file path or null on failure.
+ */
+function tryResolve(source: string, importer: string): string | null {
+  try {
+    return createRequire(importer).resolve(source);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Walks a Node `exports` condition value down to a runtime path string.
+ * Accepts a string, a nested conditions object (e.g. `{ types, default }`,
+ * `{ node, import, default }`), or null. Picks the first string we find
+ * along the conditions we care about for runtime ESM. Skips `types` since
+ * `.d.ts` files aren't runtime entries.
+ */
+function pickConditionString(value: unknown): string | null {
+  if (value == null) return null;
+  if (typeof value === "string") return value;
+  if (typeof value !== "object") return null;
+  const conditions = value as Record<string, unknown>;
+  for (const key of ["default", "import", "node", "module"]) {
+    const picked = pickConditionString(conditions[key]);
+    if (picked) return picked;
+  }
+  return null;
 }
 
 /**
@@ -96,8 +149,16 @@ function resolveEsmEntry(specifier: string, cjsPath: string): string | null {
     if (specifier !== pkg.name) return null;
 
     // Check exports["."].import first, then exports.import, then `module`.
+    // Each can be either a string (legacy single-target) or a nested
+    // conditions object like `{ types, default }` / `{ node, default }`.
+    // Walk the conditions object to extract the first runtime-relevant
+    // string. Without this, packages like `@tanstack/devtools-event-client`
+    // whose `exports["."].import` is `{ types, default }` fall through to
+    // CJS, and rolldown's `__commonJSMin` wrapper triggers TDZ ordering
+    // bugs in the playground IIFE bundle.
     const exp = pkg.exports;
-    const importPath = exp?.["."]?.import ?? exp?.import ?? pkg.module ?? null;
+    const candidate = exp?.["."]?.import ?? exp?.import ?? pkg.module ?? null;
+    const importPath = pickConditionString(candidate);
     if (typeof importPath !== "string") return null;
     const resolved = path.resolve(pkgDir, importPath);
     return fs.existsSync(resolved) ? resolved : null;
