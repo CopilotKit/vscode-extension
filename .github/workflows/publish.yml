@@ -107,15 +107,27 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # `pkg_cpu` selects which optionalDependency native bindings get
+        # installed in node_modules before `vsce package`. For host==target
+        # (most entries) this matches the runner's arch and is a no-op. For
+        # darwin-x64 we run on macos-latest (M-series, arm64) and cross-
+        # install x64 bindings — `vsce package --target X` only stamps the
+        # manifest, so the .vsix's native bindings come from whatever's in
+        # node_modules. This avoids the macos-13 (Intel) runner, whose
+        # allocation queue can sit at hours during peak load.
         include:
           - target: win32-x64
             runner: windows-latest
+            pkg_cpu: x64
           - target: linux-x64
             runner: ubuntu-latest
+            pkg_cpu: x64
           - target: darwin-x64
-            runner: macos-13
+            runner: macos-latest
+            pkg_cpu: x64
           - target: darwin-arm64
             runner: macos-latest
+            pkg_cpu: arm64
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
@@ -131,11 +143,23 @@ jobs:
         with:
           node-version: 20.x
 
-      - name: Install dependencies
+      - name: Install dependencies (host arch, for build)
+        # pnpm defaults supportedArchitectures to the runner's host. The
+        # build step needs a runnable native binding (rolldown, oxc-parser,
+        # @tailwindcss/oxide), so always install host bindings first.
         run: pnpm install --frozen-lockfile
 
       - name: Build
         run: pnpm build
+
+      - name: Re-install for target arch (${{ matrix.pkg_cpu }})
+        # Swap node_modules' optional native bindings to match the publish
+        # target. For host==target this is a no-op; for darwin-x64 on the
+        # macos-latest (arm64) runner this prunes the arm64 bindings and
+        # installs the x64 ones, so the resulting .vsix carries exactly
+        # the bindings users on that target need.
+        shell: bash
+        run: pnpm install --frozen-lockfile --config.supportedArchitectures.cpu=${{ matrix.pkg_cpu }}
 
       - name: Strip [Unreleased] from CHANGELOG for packaging
         shell: bash

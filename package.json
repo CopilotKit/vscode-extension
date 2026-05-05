@@ -1,7 +1,7 @@
 {
   "name": "copilotkit-vscode-extension",
   "displayName": "CopilotKit",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Preview generative-UI components, explore CopilotKit hooks, and inspect AG-UI agent runs — all without leaving your editor.",
   "categories": [
     "Other",
