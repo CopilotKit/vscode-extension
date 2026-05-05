@@ -4,15 +4,15 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
-    groups:
-      copilotkit:
-        patterns:
-          - "@copilotkit/*"
-    reviewers:
-      - "jpr5"
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 5
+    allow:
+      - dependency-type: "all"
+        update-type: "security"
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 5
+    allow:
+      - dependency-type: "all"
+        update-type: "security"
