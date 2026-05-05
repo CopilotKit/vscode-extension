@@ -24,7 +24,7 @@ Attach to any AG-UI-compliant agent stream (e.g. a local CopilotKit runtime) and
 
 ## Requirements
 
-- VS Code `1.90.0` or newer
+- VS Code `1.118.0` or newer
 - A workspace containing CopilotKit components, hooks, or an AG-UI runtime to inspect
 
 ## Install
