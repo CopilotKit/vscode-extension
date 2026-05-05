@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+## 0.2.2 — 2026-05-05
+
+### Fixed
+
+- Publish pipeline: dropped the dedicated `macos-13` (Intel) runner; GitHub's Intel Mac queue is being wound down and routinely held publish runs for 1–4+ hours waiting for allocation. The `darwin-x64` matrix entry now runs on `macos-latest` (M-series) and cross-installs x64 native bindings via `pnpm --config.supportedArchitectures.cpu=x64` before packaging — `vsce package --target` only stamps the manifest, so the .vsix's bindings come from whatever's in `node_modules`. Same four targets ship; allocation latency is gone.
+
+### Note
+
+- `0.2.1` was tagged but never reached the Marketplace — its publish run was held in queue waiting for `macos-13` allocation when it was cancelled. `0.2.2` is the first version that actually completes the platform-specific publish flow added in `0.2.1`.
+
 ## 0.2.1 — 2026-05-05
 
 ### Fixed
