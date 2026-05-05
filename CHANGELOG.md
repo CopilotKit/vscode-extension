@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## 0.2.1 — 2026-05-05
+
+### Fixed
+
+- Marketplace activation crash (`Cannot find module 'rolldown'`). The `0.2.0` .vsix was published without the native-backed runtime dependencies (`rolldown`, `oxc-parser`, `@tailwindcss/node`, `@tailwindcss/oxide`), so requiring them at activation threw on every install. Switched the publish pipeline to ship platform-specific .vsix builds (`win32-x64`, `linux-x64`, `darwin-x64`, `darwin-arm64`) with the appropriate native bindings included.
+- Playground console crash (`Cannot access 'require_event_client' before initialization`). Rolldown's `__commonJSMin` wrapper hits a TDZ shadow-bug when bundling certain CJS dists; routed the affected packages (`@tanstack/pacer`, `@tanstack/devtools-event-client`, `@copilotkit/shared`) to their ESM entries to bypass the wrap.
+
 ## 0.2.0 — 2026-05-05
 
 ### Added
