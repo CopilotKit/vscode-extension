@@ -135,6 +135,8 @@ const HOOK_PREVIEW_STUBBED_DEPS: Record<string, string[]> = {
   "character-entities": ["characterEntities"],
   "character-reference-invalid": ["characterReferenceInvalid"],
   "parse-entities": ["parseEntities"],
+  "node:buffer": ["isAscii"],
+  "buffer": ["isAscii"],
 };
 
 // Additional stubs for the playground webview that imports
@@ -215,10 +217,9 @@ function stubNodeBuiltinsAndCss(extraStubs: Record<string, string[]> = {}) {
       if (source.endsWith(".css")) return EMPTY_MODULE_ID;
       const bare = source.startsWith("node:") ? source.slice(5) : source;
       if (bare === "crypto") return CRYPTO_SHIM_ID;
+      if (source in allStubs) return STUB_PREFIX + source;
+      if (bare in allStubs) return STUB_PREFIX + bare;
       if (NODE_BUILTINS.has(bare)) return EMPTY_MODULE_ID;
-      if (source in allStubs) {
-        return STUB_PREFIX + source;
-      }
       return null;
     },
     load(id: string) {
