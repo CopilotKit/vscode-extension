@@ -47,7 +47,7 @@
     "@tailwindcss/oxide": "^4.1.0",
     "ignore": "^7.0.5",
     "oxc-parser": "^0.72.0",
-    "rolldown": "^1.0.0-rc.15",
+    "rolldown": "^1.0.0-rc.18",
     "tailwindcss": "^4.1.0",
     "zod": "^3.21.0",
     "zod-to-json-schema": "^3.25.2"
