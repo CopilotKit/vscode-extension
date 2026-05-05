@@ -277,10 +277,13 @@ jobs:
             done
           }
 
-          # `--target` is read from the .vsix manifest (set at package time),
-          # but pass it explicitly to make the matrix entry self-documenting.
+          # vsce reads the target from the .vsix manifest (set at package
+          # time) and explicitly rejects `--target` together with
+          # `--packagePath` — quote: "Both options not supported
+          # simultaneously: 'packagePath' and 'target'." So pass only
+          # `--packagePath`. The matrix already records the target visibly
+          # in the step name and artifact name.
           retry_publish npx --yes @vscode/vsce@^3 publish \
-            --target ${{ matrix.target }} \
             --packagePath extension-${{ matrix.target }}.vsix \
             --azure-credential
 
