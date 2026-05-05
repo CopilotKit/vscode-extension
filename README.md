@@ -4,7 +4,7 @@ Preview generative-UI components, explore CopilotKit hooks, and inspect AG-UI ag
 
 ## Features
 
-The extension adds a **CopilotKit** container to the activity bar with three panels:
+The extension adds a **CopilotKit** container to the activity bar with four panels:
 
 ### A2UI Catalog Preview
 
@@ -14,13 +14,17 @@ Live-preview A2UI catalog components from your workspace. Pick a component and a
 
 Scans your workspace for `useCopilotAction`, `useCoAgent`, and related CopilotKit hooks, then renders each hook's generative UI — including in-progress and completed states — so you can iterate on agent UIs without running the full agent loop. Jump-to-source and copy-identity actions are available from the sidebar.
 
+### Playground
+
+An embedded chat surface powered by `vscode.lm` that lets you interact with CopilotKit agents directly inside the editor. The playground scanner detects CopilotKit hooks and providers in your workspace, wires them into a local runtime, and hot-reloads on file saves so you can iterate without leaving VS Code. Supports fixture recording and replay — capture a conversation once, then re-run it deterministically for development and testing.
+
 ### AG-UI Inspector
 
 Attach to any AG-UI-compliant agent stream (e.g. a local CopilotKit runtime) and inspect the event timeline in real time: tool calls, message deltas, state patches, and lifecycle events — with payload drill-down for each event.
 
 ## Requirements
 
-- VS Code `1.85.0` or newer
+- VS Code `1.90.0` or newer
 - A workspace containing CopilotKit components, hooks, or an AG-UI runtime to inspect
 
 ## Install

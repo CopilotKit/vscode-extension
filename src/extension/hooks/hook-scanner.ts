@@ -3,6 +3,7 @@ import * as path from "node:path";
 import ignore, { type Ignore } from "ignore";
 import { parseSync } from "oxc-parser";
 import { getHookDef, isCopilotKitHook } from "./hook-registry";
+import { buildLineOffsets, offsetToLineColumn } from "../playground/ast-utils";
 
 export interface HookCallSite {
   filePath: string;
@@ -42,40 +43,6 @@ function readFile(filePath: string): string | null {
   } catch {
     return null;
   }
-}
-
-/**
- * Pre-computes line-start offsets for O(log n) offset→line/column conversion.
- */
-function buildLineOffsets(source: string): number[] {
-  const offsets = [0];
-  for (let i = 0; i < source.length; i++) {
-    if (source.charCodeAt(i) === 10 /* \n */) {
-      offsets.push(i + 1);
-    }
-  }
-  return offsets;
-}
-
-function offsetToLineColumn(
-  offset: number,
-  lineOffsets: number[],
-): { line: number; column: number } {
-  // Binary search for the largest line-start offset ≤ offset.
-  let lo = 0;
-  let hi = lineOffsets.length - 1;
-  while (lo < hi) {
-    const mid = (lo + hi + 1) >>> 1;
-    if (lineOffsets[mid]! <= offset) {
-      lo = mid;
-    } else {
-      hi = mid - 1;
-    }
-  }
-  return {
-    line: lo + 1,
-    column: offset - lineOffsets[lo]!,
-  };
 }
 
 /**
@@ -250,6 +217,10 @@ export interface ScanWorkspaceResult {
   capped: boolean;
   /** Number of .ts/.tsx files considered before the cap tripped. */
   filesScanned: number;
+  /** Every .ts/.tsx file the walk visited (pre-content-prefilter). */
+  visitedFiles: string[];
+  /** Cached file contents from the first read, keyed by absolute path. */
+  fileContents: Map<string, string>;
 }
 
 /**
@@ -266,6 +237,8 @@ export interface ScanWorkspaceResult {
  */
 export function scanWorkspace(workspaceDir: string): ScanWorkspaceResult {
   const results: HookCallSite[] = [];
+  const visited: string[] = [];
+  const fileContents = new Map<string, string>();
   let filesSeen = 0;
   let capped = false;
 
@@ -309,10 +282,21 @@ export function scanWorkspace(workspaceDir: string): ScanWorkspaceResult {
         capped = true;
         return;
       }
-      results.push(...scanFile(full));
+      visited.push(full);
+      const content = readFile(full);
+      if (content) {
+        fileContents.set(full, content);
+        results.push(...scanContent(full, content));
+      }
     }
   };
 
   walk(workspaceDir, []);
-  return { sites: results, capped, filesScanned: filesSeen };
+  return {
+    sites: results,
+    capped,
+    filesScanned: filesSeen,
+    visitedFiles: visited,
+    fileContents,
+  };
 }

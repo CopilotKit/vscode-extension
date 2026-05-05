@@ -15,6 +15,14 @@ import { InspectorPanel } from "./inspector-panel";
 import { InspectorViewProvider } from "./inspector-view-provider";
 import { DebugStream } from "./debug-stream";
 import { activateHookExplorer } from "./hooks/activate-hook-explorer";
+import {
+  PlaygroundViewProvider,
+  createPlaygroundDeps,
+} from "./playground/view-provider";
+import { scanPlayground } from "./playground/scanner";
+import { PlaygroundFileWatcher } from "./playground/file-watcher";
+
+let activePlaygroundProvider: PlaygroundViewProvider | null = null;
 
 export function activate(context: vscode.ExtensionContext): void {
   const workspaceRoot = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
@@ -237,13 +245,120 @@ export function activate(context: vscode.ExtensionContext): void {
 
   context.subscriptions.push({ dispose: () => inspectorPanel.dispose() });
 
+  // ----- Playground (Chat Tab) -----
+  const playgroundOutputChannel = vscode.window.createOutputChannel(
+    "CopilotKit Playground",
+  );
+  context.subscriptions.push(playgroundOutputChannel);
+
+  const runPlaygroundScan = (): void => {
+    if (!workspaceRoot) {
+      playgroundOutputChannel.appendLine(
+        "[playground] skip scan — no workspace folder open",
+      );
+      return;
+    }
+    try {
+      playgroundOutputChannel.appendLine(
+        `[playground] scanning ${workspaceRoot}`,
+      );
+      const result = scanPlayground(workspaceRoot);
+      playgroundOutputChannel.appendLine(
+        `[playground] scan done: ${result.providers.length} provider(s), ` +
+          `${result.componentsWithHooks.length} component(s), ` +
+          `${result.hookSites.length} hook site(s), ` +
+          `${result.warnings.length} warning(s)`,
+      );
+      playgroundProvider.setScanResult(result);
+    } catch (err) {
+      const detail =
+        err instanceof Error ? (err.stack ?? err.message) : String(err);
+      playgroundOutputChannel.appendLine(`[playground] scan failed: ${detail}`);
+      void vscode.window.showErrorMessage(
+        `CopilotKit playground scan failed: ${
+          err instanceof Error ? err.message : String(err)
+        } — see "CopilotKit Playground" output for details.`,
+      );
+    }
+  };
+
+  const playgroundProvider = new PlaygroundViewProvider(
+    context.extensionUri,
+    {
+      onRefresh: runPlaygroundScan,
+      onOpenSource: async (filePath, line) => {
+        try {
+          const doc = await vscode.workspace.openTextDocument(
+            vscode.Uri.file(filePath),
+          );
+          const editor = await vscode.window.showTextDocument(doc);
+          if (line) {
+            const pos = new vscode.Position(Math.max(0, line - 1), 0);
+            editor.revealRange(
+              new vscode.Range(pos, pos),
+              vscode.TextEditorRevealType.InCenter,
+            );
+            editor.selection = new vscode.Selection(pos, pos);
+          }
+        } catch (err) {
+          const detail =
+            err instanceof Error ? (err.stack ?? err.message) : String(err);
+          playgroundOutputChannel.appendLine(
+            `[playground] open-source ${filePath}:${line ?? "?"} failed: ${detail}`,
+          );
+          void vscode.window.showErrorMessage(
+            `Could not open source file: ${err instanceof Error ? err.message : String(err)}`,
+          );
+        }
+      },
+    },
+    createPlaygroundDeps(workspaceRoot ?? null, (line) =>
+      playgroundOutputChannel.appendLine(line),
+    ),
+  );
+  activePlaygroundProvider = playgroundProvider;
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(
+      PlaygroundViewProvider.viewType,
+      playgroundProvider,
+      { webviewOptions: { retainContextWhenHidden: true } },
+    ),
+  );
+  context.subscriptions.push(
+    vscode.commands.registerCommand(
+      "copilotkit.chat.refresh",
+      runPlaygroundScan,
+    ),
+  );
+
+  // Hot-reload: rescan + rebundle whenever the user touches a TS/TSX/CSS
+  // file in their workspace. Without this, edits to hooks, providers, or
+  // the Tailwind entry CSS only show up in the chat after a manual
+  // `CopilotKit: Refresh` (or full extension reload).
+  if (workspaceRoot) {
+    const playgroundFileWatcher = new PlaygroundFileWatcher(() => {
+      playgroundOutputChannel.appendLine(
+        "[playground] file change detected — rescanning",
+      );
+      runPlaygroundScan();
+    });
+    context.subscriptions.push(playgroundFileWatcher);
+  }
+
+  runPlaygroundScan();
+
   // ----- Hook Explorer -----
   // All wiring (tree, panel, persistence, scan, 5 commands) lives in its own
   // module so this file stays a thin composition root.
   activateHookExplorer(context, workspaceRoot);
 }
 
-export function deactivate(): void {}
+export function deactivate(): void {
+  if (activePlaygroundProvider) {
+    void activePlaygroundProvider.stopSession();
+    activePlaygroundProvider = null;
+  }
+}
 
 /**
  * Validates a fixture document and sets diagnostics (yellow squiggly lines).
