@@ -58,7 +58,7 @@
     "@testing-library/react": "^16.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "@types/vscode": "^1.90.0",
+    "@types/vscode": "^1.118.0",
     "@vscode/vsce": "^3.0.0",
     "jsdom": "^26.0.0",
     "react": "^19.0.0",
