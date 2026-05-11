@@ -47,7 +47,7 @@
     "@tailwindcss/oxide": "^4.1.0",
     "ignore": "^7.0.5",
     "openai": "^6.36.0",
-    "oxc-parser": "^0.72.0",
+    "oxc-parser": "^0.129.0",
     "rolldown": "^1.0.0-rc.15",
     "tailwindcss": "^4.1.0",
     "zod": "^3.21.0",
