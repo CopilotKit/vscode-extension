@@ -43,7 +43,7 @@
   "dependencies": {
     "@ag-ui/client": "0.0.52",
     "@copilotkit/runtime": "^1.56.5",
-    "@tailwindcss/node": "^4.1.0",
+    "@tailwindcss/node": "^4.3.0",
     "@tailwindcss/oxide": "^4.1.0",
     "ignore": "^7.0.5",
     "openai": "^6.36.0",
