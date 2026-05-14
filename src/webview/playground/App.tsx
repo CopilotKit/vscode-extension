@@ -11,6 +11,7 @@ import { onExtensionMessage, sendToExtension } from "./bridge";
 import type { PlaygroundScanResult } from "../../extension/playground/types";
 import type { MountErrorPayload } from "../../extension/playground/bridge-types";
 import type { FixtureListEntry } from "../../extension/playground/fixture-store";
+import type { ReplayMessage } from "../../extension/playground/fixture-replay";
 
 export function App(): React.JSX.Element {
   const [result, setResult] = React.useState<PlaygroundScanResult>({
@@ -44,6 +45,15 @@ export function App(): React.JSX.Element {
     Array<{ id: string; name: string; family: string; vendor: string }>
   >([]);
   const [selectedModelId, setSelectedModelId] = React.useState("");
+  // The extension posts `play-fixture` immediately after `bundle-ready`,
+  // but executing the new bundle is async — the listener for the replay
+  // event lives inside the bundle (in PlaygroundChat) and only registers
+  // once the new bundle has mounted. Queue the messages here and dispatch
+  // them via the effect below, so the new PlaygroundChat is guaranteed to
+  // have attached its listener before the event fires.
+  const [pendingReplay, setPendingReplay] = React.useState<
+    ReplayMessage[] | null
+  >(null);
 
   // Collapse state for the side panels — persisted so users who don't
   // need them keep their full chat width across reloads. The classes
@@ -78,6 +88,11 @@ export function App(): React.JSX.Element {
       else if (msg.type === "bundle-ready") {
         setStateBanner(null);
         setBundleError(null);
+        // Unmount the old bundle synchronously. Its runtime was stopped
+        // server-side before this rebundle, so leaving it mounted would
+        // both point at a dead URL and (on a load-fixture flow) catch
+        // the imminent replay event in the wrong listener.
+        setBundle(null);
         executePlaygroundBundle(msg.payload.code, msg.payload.css).then(
           (exports) => setBundle(exports),
           (err) => {
@@ -134,17 +149,29 @@ export function App(): React.JSX.Element {
         // We use a window CustomEvent because PlaygroundChat is generated
         // into the rolldown'd bundle and doesn't share a React context with
         // this shell — a global event bus is the simplest cross-bundle
-        // wiring.
-        window.dispatchEvent(
-          new CustomEvent("copilotkit-playground-replay", {
-            detail: { messages: msg.messages },
-          }),
-        );
+        // wiring. Stash the messages and let the effect below dispatch
+        // once the bundle (and therefore the chat's replay listener) is
+        // mounted.
+        setPendingReplay(msg.messages);
       }
     });
     sendToExtension({ type: "ready" });
     return unsubscribe;
   }, []);
+
+  // Dispatch a queued replay only after the new bundle is mounted.
+  // React runs child useEffects before parent ones on the same commit,
+  // so by the time this fires the new PlaygroundChat has already
+  // registered its replay listener and will catch the event.
+  React.useEffect(() => {
+    if (!bundle || !pendingReplay) return;
+    window.dispatchEvent(
+      new CustomEvent("copilotkit-playground-replay", {
+        detail: { messages: pendingReplay },
+      }),
+    );
+    setPendingReplay(null);
+  }, [bundle, pendingReplay]);
 
   // Forward "click tool name" events from the bundled chat surface to
   // the extension. The chat lives inside the rolldown'd bundle and

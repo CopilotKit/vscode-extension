@@ -2,6 +2,21 @@
 
 ## [Unreleased]
 
+## 0.2.3 — 2026-05-14
+
+### Fixed
+
+- Playground saved-replay sidebar: deleting a fixture file out of band (Explorer, terminal, git pull) now refreshes the sidebar within ~1 s via a Node `fs.watch` on `.copilotkit/fixtures/`. The previous `vscode.workspace.createFileSystemWatcher` was unreliable for dot-prefixed paths on Windows; the entry would stick around until the next reload.
+- Playground ▶ on a saved replay no longer drops the recorded conversation. The previous race posted `play-fixture` before the new bundle's `PlaygroundChat` had registered its replay listener; the App shell now unmounts the stale bundle synchronously on `bundle-ready`, queues the replay messages, and dispatches them after the new chat mounts (React runs child effects before parent effects on the same commit, so the listener is guaranteed to be attached).
+- Playground recovery: clicking ▶ on a fixture whose file has been deleted no longer permanently bricks the panel ("Preparing chat surface…" + ENOENT loop). `load-fixture` now reads the file before committing `replayFixturePath`, refreshes the sidebar, and surfaces a one-shot warning. The `runBundle` pass also recovers when the active fixture vanishes mid-session by falling back to record mode instead of crashing.
+- Playground Refresh button: always reconciles the saved-replays sidebar with disk at the start of every rebundle. Refresh is now a guaranteed manual recovery path even if the fs.watch misses an event.
+- Playground chat with many `vscode.lm` tools: some models (notably Claude through Copilot Chat with ~80+ tools forwarded) silently reject requests by returning 200 OK with an empty stream. The chat now auto-retries once without the `vscode.lm` tools so the user gets a real response on the same query. If both attempts return empty, an actionable in-chat message explains the cause and points at the `copilotkit.playground.enableVscodeLmTools` setting.
+- Playground stream translation: text content streamed as `LanguageModelDataPart` (text/plain or application/json mimes) is surfaced as `TEXT_MESSAGE_CONTENT` instead of being silently dropped. Newer Claude builds routed through Copilot Chat had been producing empty chats this way.
+
+### Added
+
+- Playground output channel now logs unknown `vscode.lm` stream-part types (constructor name + mime when applicable) so future model-side changes leave a breadcrumb instead of an empty chat.
+
 ## 0.2.2 — 2026-05-05
 
 ### Fixed
