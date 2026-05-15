@@ -42,7 +42,7 @@
   },
   "dependencies": {
     "@ag-ui/client": "0.0.53",
-    "@copilotkit/runtime": "^1.56.5",
+    "@copilotkit/runtime": "^1.57.1",
     "@tailwindcss/node": "^4.3.0",
     "@tailwindcss/oxide": "^4.3.0",
     "ignore": "^7.0.5",
@@ -54,8 +54,8 @@
     "zod-to-json-schema": "^3.25.2"
   },
   "devDependencies": {
-    "@copilotkit/a2ui-renderer": "^1.56.5",
-    "@copilotkit/react-core": "^1.56.5",
+    "@copilotkit/a2ui-renderer": "^1.57.1",
+    "@copilotkit/react-core": "^1.57.1",
     "@testing-library/react": "^16.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
