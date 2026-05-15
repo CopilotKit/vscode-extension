@@ -28,14 +28,14 @@ concurrency:
   group: publish-vscode-extension-${{ github.ref }}
   cancel-in-progress: false
 
-permissions:
-  contents: write
-  id-token: write
+permissions: {}
 
 jobs:
   prepare:
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions:
+      contents: read
     outputs:
       version: ${{ steps.pkg.outputs.version }}
       name: ${{ steps.pkg.outputs.name }}
@@ -44,7 +44,9 @@ jobs:
       published: ${{ steps.check.outputs.published }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Read package.json version
         id: pkg
@@ -104,6 +106,8 @@ jobs:
     needs: prepare
     if: needs.prepare.outputs.published == 'false'
     timeout-minutes: 25
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -131,15 +135,17 @@ jobs:
     runs-on: ${{ matrix.runner }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v6
+        uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6
         with:
           version: "10.13.1"
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
           node-version: 20.x
 
@@ -170,7 +176,7 @@ jobs:
         run: npx --yes @vscode/vsce@^3 package --target ${{ matrix.target }} --out extension-${{ matrix.target }}.vsix
 
       - name: Upload VSIX artifact
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: vsix-${{ matrix.target }}
           path: extension-${{ matrix.target }}.vsix
@@ -190,12 +196,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download VSIX artifact (${{ matrix.target }})
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           name: vsix-${{ matrix.target }}
 
       - name: Login to Azure (OIDC → Entra SP)
-        uses: azure/login@v3
+        uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
@@ -387,9 +393,15 @@ jobs:
       contents: write
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
+          persist-credentials: false
+
+      - name: Configure git credentials for push
+        run: git config --global url."https://x-access-token:$GITHUB_TOKEN@github.com/".insteadOf "https://github.com/"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Create git tag
         run: |
@@ -437,7 +449,7 @@ jobs:
         if: env.SLACK_WEBHOOK_OSS_ALERTS != ''
         env:
           SLACK_WEBHOOK_OSS_ALERTS: ${{ secrets.SLACK_WEBHOOK_OSS_ALERTS }}
-        uses: slackapi/slack-github-action@v3.0.2
+        uses: slackapi/slack-github-action@03ea5433c137af7c0495bc0cad1af10403fc800c # v3.0.2
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_OSS_ALERTS }}
           webhook-type: incoming-webhook
@@ -460,13 +472,14 @@ jobs:
           || needs.finalize.result == 'failure')
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    permissions: {}
     environment: production
     steps:
       - name: Notify Slack (publish failure)
         if: env.SLACK_WEBHOOK_OSS_ALERTS != ''
         env:
           SLACK_WEBHOOK_OSS_ALERTS: ${{ secrets.SLACK_WEBHOOK_OSS_ALERTS }}
-        uses: slackapi/slack-github-action@v3.0.2
+        uses: slackapi/slack-github-action@03ea5433c137af7c0495bc0cad1af10403fc800c # v3.0.2
         with:
           webhook: ${{ secrets.SLACK_WEBHOOK_OSS_ALERTS }}
           webhook-type: incoming-webhook
