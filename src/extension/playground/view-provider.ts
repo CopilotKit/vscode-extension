@@ -168,13 +168,26 @@ export class PlaygroundViewProvider implements vscode.WebviewViewProvider {
               return;
             }
             case "load-fixture": {
-              this.replayFixturePath = msg.filePath;
+              // Read the fixture BEFORE committing replayFixturePath —
+              // otherwise a stale sidebar entry (file deleted out from
+              // under us) would trap subsequent rebundles in a permanent
+              // "Preparing chat surface…" + ENOENT loop, because runBundle
+              // would keep trying to read the missing file.
               try {
-                this.replayFixtureName =
-                  this.deps.fixtureStore.read(msg.filePath).metadata.name ??
-                  null;
+                const fixture = this.deps.fixtureStore.read(msg.filePath);
+                this.replayFixturePath = msg.filePath;
+                this.replayFixtureName = fixture.metadata.name ?? null;
               } catch {
+                this.replayFixturePath = null;
                 this.replayFixtureName = null;
+                this.post({
+                  type: "fixtures-list",
+                  fixtures: this.deps.fixtureStore.list(),
+                });
+                void vscode.window.showWarningMessage(
+                  "That fixture file no longer exists — it may have been deleted from disk.",
+                );
+                return;
               }
               if (this.latestResult) {
                 this.setScanResult(this.latestResult);
@@ -234,6 +247,29 @@ export class PlaygroundViewProvider implements vscode.WebviewViewProvider {
     });
   }
 
+  /**
+   * Pushes a fresh fixtures-list to the webview. Called from the
+   * activator when `.copilotkit/fixtures/*.json` changes on disk (e.g.
+   * the user deleted a saved replay in Explorer or git pulled new
+   * fixtures in). If the file backing the active replay session was
+   * removed, also drop our reference so the next rebundle falls back
+   * to record mode instead of throwing on a missing file.
+   */
+  refreshFixturesList(): void {
+    if (
+      this.replayFixturePath !== null &&
+      !fs.existsSync(this.replayFixturePath)
+    ) {
+      this.replayFixturePath = null;
+      this.replayFixtureName = null;
+    }
+    if (!this.ready) return;
+    this.post({
+      type: "fixtures-list",
+      fixtures: this.deps.fixtureStore.list(),
+    });
+  }
+
   async stopSession(): Promise<void> {
     if (!this.currentSession) return;
     const { runtime } = this.currentSession;
@@ -243,6 +279,14 @@ export class PlaygroundViewProvider implements vscode.WebviewViewProvider {
 
   private async runBundle(result: PlaygroundScanResult): Promise<void> {
     const seq = ++this.bundleSeq;
+    // Sync the sidebar with disk on every rebundle. This is a cheap
+    // belt-and-suspenders so Refresh always reflects out-of-band file
+    // changes (manual delete, git pull) even if the fs.watch on
+    // `.copilotkit/fixtures/` missed an event.
+    this.post({
+      type: "fixtures-list",
+      fixtures: this.deps.fixtureStore.list(),
+    });
     let sources: PlaygroundSources | null = null;
     let session: {
       runtime: RuntimeHostHandle;
@@ -291,9 +335,23 @@ export class PlaygroundViewProvider implements vscode.WebviewViewProvider {
 
       // 4. Start the runtime host (in-process).
       const recordedCalls: RecordedCall[] = [];
-      const replayFixture = this.replayFixturePath
-        ? this.deps.fixtureStore.read(this.replayFixturePath)
-        : null;
+      // Read the active replay fixture defensively. If the file vanished
+      // between load-fixture and this rebundle (manual delete, git pull,
+      // failed watcher event), drop the stale reference and fall back to
+      // record mode instead of letting ENOENT brick the panel.
+      let replayFixture: SavedFixture | null = null;
+      if (this.replayFixturePath) {
+        try {
+          replayFixture = this.deps.fixtureStore.read(this.replayFixturePath);
+        } catch {
+          this.replayFixturePath = null;
+          this.replayFixtureName = null;
+          this.post({
+            type: "fixtures-list",
+            fixtures: this.deps.fixtureStore.list(),
+          });
+        }
+      }
       const runtime = await this.deps.startRuntimeHost({
         model,
         mode: replayFixture ? "replay" : "record",

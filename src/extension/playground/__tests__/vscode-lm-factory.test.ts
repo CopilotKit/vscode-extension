@@ -264,3 +264,110 @@ describe("vscodeLmFactory — replay mode", () => {
     await expect(collect()).rejects.toThrow();
   });
 });
+
+describe("vscodeLmFactory — empty-stream recovery", () => {
+  function makeMultiResponseModel(streams: unknown[][]): {
+    model: LanguageModelChat;
+    callCount: () => number;
+  } {
+    let idx = 0;
+    const model = {
+      id: "test-model",
+      family: "test",
+      name: "Test",
+      vendor: "test",
+      sendRequest: vi.fn(async () => {
+        const parts = streams[idx] ?? [];
+        idx++;
+        return {
+          stream: (async function* () {
+            for (const p of parts) yield p;
+          })(),
+          text: (async function* () {})(),
+        };
+      }),
+    } as unknown as LanguageModelChat;
+    return { model, callCount: () => idx };
+  }
+
+  it("auto-retries without vscode.lm tools when the first stream is empty", async () => {
+    const { LanguageModelTextPart } = await import("vscode");
+    const { model, callCount } = makeMultiResponseModel([
+      [], // first attempt: empty
+      [new LanguageModelTextPart("retry worked")], // second attempt: text
+    ]);
+    const factory = vscodeLmFactory({
+      model,
+      mode: "live",
+      vscodeLmTools: [
+        {
+          name: "ghc_tool_1",
+          description: "x",
+          inputSchema: { type: "object" },
+        } as unknown as import("vscode").LanguageModelToolInformation,
+      ],
+    });
+    const chunks: unknown[] = [];
+    const ac = new AbortController();
+    for await (const c of factory({
+      input: minimalInput,
+      abortController: ac,
+      abortSignal: ac.signal,
+    })) {
+      chunks.push(c);
+    }
+    expect(callCount()).toBe(2);
+    expect(chunks).toEqual([
+      { type: "TEXT_MESSAGE_CONTENT", delta: "retry worked" },
+    ]);
+  });
+
+  it("yields a single actionable message when both attempts return empty", async () => {
+    const { model, callCount } = makeMultiResponseModel([[], []]);
+    const factory = vscodeLmFactory({
+      model,
+      mode: "live",
+      vscodeLmTools: Array.from({ length: 25 }, (_, i) => ({
+        name: `vscode_tool_${i}`,
+        description: "x",
+        inputSchema: { type: "object" },
+      })) as unknown as import("vscode").LanguageModelToolInformation[],
+    });
+    const chunks: Array<{ type: string; delta?: string }> = [];
+    const ac = new AbortController();
+    for await (const c of factory({
+      input: minimalInput,
+      abortController: ac,
+      abortSignal: ac.signal,
+    })) {
+      chunks.push(c as { type: string; delta?: string });
+    }
+    expect(callCount()).toBe(2);
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]?.type).toBe("TEXT_MESSAGE_CONTENT");
+    // The high-tool-count branch of the message mentions the tool counts
+    // so the user can act on it.
+    expect(chunks[0]?.delta).toMatch(/25/);
+  });
+
+  it("does not retry when there were no vscode.lm tools to drop", async () => {
+    const { model, callCount } = makeMultiResponseModel([[]]);
+    const factory = vscodeLmFactory({
+      model,
+      mode: "live",
+      // No vscodeLmTools — empty stream is not recoverable by retry.
+    });
+    const chunks: unknown[] = [];
+    const ac = new AbortController();
+    for await (const c of factory({
+      input: minimalInput,
+      abortController: ac,
+      abortSignal: ac.signal,
+    })) {
+      chunks.push(c);
+    }
+    expect(callCount()).toBe(1);
+    // Only the synthetic actionable message.
+    expect(chunks).toHaveLength(1);
+  });
+});

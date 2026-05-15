@@ -112,22 +112,59 @@ export function vscodeLmFactory(
     const vscodeLmToolNames = new Set(vscodeLmTools.map((t) => t.name));
     const tools = [...userTools, ...vscodeLmTools];
 
-    try {
+    // Single-attempt streaming helper. Used twice: first with the full
+    // tool set (user + vscode.lm); if that returns 0 chunks AND vscode.lm
+    // tools were forwarded, again with user tools only. Models that
+    // silently reject requests with too many tools (e.g. Claude via
+    // Copilot Chat with 80+ tools) recover gracefully without the user
+    // having to flip a setting.
+    const attempt = async function* (
+      toolsForRequest: vscode.LanguageModelChatTool[],
+      label: string,
+    ): AsyncGenerator<TanStackChunk, number> {
       log(
-        `[vscode-lm-factory] sendRequest model=${opts.model.id} userTools=${userTools.length} vscodeLmTools=${vscodeLmTools.length}`,
+        `[vscode-lm-factory] sendRequest ${label} model=${opts.model.id} userTools=${userTools.length} vscodeLmTools=${
+          toolsForRequest.length - userTools.length
+        }`,
       );
       const response = await opts.model.sendRequest(
         messages,
-        tools.length > 0 ? { tools } : {},
+        toolsForRequest.length > 0 ? { tools: toolsForRequest } : {},
         tokenSource.token,
       );
       let chunkCount = 0;
+      let unknownPartCount = 0;
       for await (const part of response.stream) {
         if (ctx.abortSignal.aborted) break;
+        let translated = false;
         for (const chunk of translatePart(part)) {
+          translated = true;
           chunkCount++;
           if (opts.mode === "record") recordedChunks.push(chunk);
           yield chunk;
+        }
+        if (
+          !translated &&
+          !(part instanceof vscode.LanguageModelToolCallPart)
+        ) {
+          // Part type we don't recognize (e.g. a thinking/reasoning part
+          // some vscode.lm providers stream, or a DataPart with a binary
+          // mime). Log it so we can extend translatePart instead of
+          // silently producing an empty chat.
+          unknownPartCount++;
+          const ctor = (part as { constructor?: { name?: string } })
+            ?.constructor?.name;
+          const isDataPart =
+            typeof vscode.LanguageModelDataPart === "function" &&
+            part instanceof vscode.LanguageModelDataPart;
+          const mime = isDataPart
+            ? (part as vscode.LanguageModelDataPart).mimeType
+            : undefined;
+          log(
+            `[vscode-lm-factory] dropping unknown stream part: ctor=${ctor ?? typeof part}${
+              mime ? ` mime=${mime}` : ""
+            }`,
+          );
         }
         // For vscode.lm tool calls, also invoke server-side and emit a
         // TOOL_CALL_RESULT chunk so the chat history records the result
@@ -146,7 +183,40 @@ export function vscodeLmFactory(
           yield resultChunk;
         }
       }
-      log(`[vscode-lm-factory] stream complete chunks=${chunkCount}`);
+      log(
+        `[vscode-lm-factory] ${label} complete chunks=${chunkCount}${
+          unknownPartCount > 0 ? ` unknownParts=${unknownPartCount}` : ""
+        }`,
+      );
+      return chunkCount;
+    };
+
+    try {
+      // First attempt with the full tool surface.
+      let chunkCount = yield* attempt(tools, "attempt 1");
+
+      // If the model silently returned nothing AND we sent vscode.lm
+      // tools, retry without them. Keeps `enableVscodeLmTools=true` viable
+      // even when the active model can't cope with a large tool budget.
+      if (chunkCount === 0 && vscodeLmTools.length > 0) {
+        log(
+          `[vscode-lm-factory] attempt 1 empty — retrying without ${vscodeLmTools.length} vscode.lm tool(s)`,
+        );
+        chunkCount = yield* attempt(userTools, "attempt 2 (no vscode.lm tools)");
+      }
+
+      // Still nothing → surface an actionable in-chat message so the user
+      // isn't staring at a frozen input.
+      if (chunkCount === 0) {
+        const totalTools = userTools.length + vscodeLmTools.length;
+        const message =
+          vscodeLmTools.length > 20
+            ? `**The model returned no content.** This request forwarded **${totalTools} tools** (${vscodeLmTools.length} from VS Code language-model providers like GitHub Copilot, plus ${userTools.length} from your code). Retrying without the VS Code tools also returned nothing — the model may be rate-limited, refusing the request, or unavailable.\n\nTry a different model, or disable \`copilotkit.playground.enableVscodeLmTools\` in your VS Code settings and click **Refresh**.`
+            : `**The model returned no content.** Check the *CopilotKit Playground* output channel for details. The model may have hit a rate limit, refused the request, or returned a part type the playground doesn't recognize.`;
+        // Synthetic chunk — NOT pushed into recordedChunks so it never
+        // gets baked into a saved fixture.
+        yield { type: "TEXT_MESSAGE_CONTENT", delta: message };
+      }
     } catch (err) {
       log(
         `[vscode-lm-factory] sendRequest threw: ${err instanceof Error ? err.message : String(err)}`,
@@ -352,5 +422,28 @@ function* translatePart(part: unknown): Generator<TanStackChunk> {
     };
     yield { type: "TOOL_CALL_END", toolCallId };
     return;
+  }
+  // Some vscode.lm providers stream text content as `LanguageModelDataPart`
+  // with a text/* or application/json mime instead of plain `TextPart`
+  // (notably newer Claude builds routed through Copilot Chat). Surface
+  // those as text deltas — otherwise they'd be dropped and the user would
+  // see an empty chat. Binary mimes (image/*, etc.) are skipped here and
+  // logged at the call site so we can extend support if needed.
+  //
+  // Guarded with a typeof check because older VS Code builds (or the
+  // vitest vscode mock) may not define `LanguageModelDataPart`, and
+  // `part instanceof undefined` throws.
+  if (
+    typeof vscode.LanguageModelDataPart === "function" &&
+    part instanceof vscode.LanguageModelDataPart
+  ) {
+    const mime = part.mimeType || "";
+    if (mime.startsWith("text/") || mime === "application/json") {
+      const text = new TextDecoder("utf-8").decode(part.data);
+      if (text.length > 0) {
+        yield { type: "TEXT_MESSAGE_CONTENT", delta: text };
+      }
+      return;
+    }
   }
 }

@@ -21,6 +21,7 @@ import {
 } from "./playground/view-provider";
 import { scanPlayground } from "./playground/scanner";
 import { PlaygroundFileWatcher } from "./playground/file-watcher";
+import { FixturesDirWatcher } from "./playground/fixtures-dir-watcher";
 
 let activePlaygroundProvider: PlaygroundViewProvider | null = null;
 
@@ -343,6 +344,26 @@ export function activate(context: vscode.ExtensionContext): void {
       runPlaygroundScan();
     });
     context.subscriptions.push(playgroundFileWatcher);
+
+    // Reflect manual fixture changes (Explorer delete, git pull, etc.)
+    // in the saved-replays sidebar. We use a Node fs.watch on the
+    // fixtures directory rather than vscode.createFileSystemWatcher —
+    // the latter is unreliable for dot-prefixed paths like
+    // `.copilotkit/` on Windows. The webview-initiated save/delete
+    // round-trip already pushes a fresh list, so this watcher is for
+    // out-of-band edits only.
+    const fixturesDir = path.join(workspaceRoot, ".copilotkit", "fixtures");
+    const fixturesDirWatcher = new FixturesDirWatcher(
+      fixturesDir,
+      () => {
+        playgroundOutputChannel.appendLine(
+          "[playground] fixtures dir changed — refreshing sidebar",
+        );
+        playgroundProvider.refreshFixturesList();
+      },
+      (line) => playgroundOutputChannel.appendLine(line),
+    );
+    context.subscriptions.push(fixturesDirWatcher);
   }
 
   runPlaygroundScan();

@@ -1,13 +1,20 @@
 import { describe, expect, it, vi } from "vitest";
 
 // vscode is not available in the vitest runtime — shim the surface used by
-// PlaygroundViewProvider (Uri.joinPath for renderHtml, nothing else).
+// PlaygroundViewProvider (Uri.joinPath for renderHtml, plus the warning-
+// message API used by load-fixture's stale-file recovery path).
+const vscodeMocks = vi.hoisted(() => ({
+  showWarningMessage: vi.fn(),
+}));
 vi.mock("vscode", () => ({
   Uri: {
     joinPath: (_base: unknown, ...parts: string[]) => ({
       toString: () => parts.join("/"),
       fsPath: parts.join("/"),
     }),
+  },
+  window: {
+    showWarningMessage: vscodeMocks.showWarningMessage,
   },
 }));
 
@@ -254,6 +261,307 @@ describe("PlaygroundViewProvider — bundling", () => {
     );
     expect(view.webview.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({ type: "bundle-ready" }),
+    );
+  });
+});
+
+describe("PlaygroundViewProvider — missing-fixture recovery", () => {
+  it("load-fixture with a missing file does not set replayFixturePath and refreshes the sidebar", async () => {
+    const readFn = vi.fn().mockImplementation(() => {
+      throw new Error("ENOENT: no such file or directory");
+    });
+    const listFn = vi.fn().mockReturnValue([]);
+    const startRuntimeHost = vi.fn().mockResolvedValue({
+      url: "http://127.0.0.1:22222",
+      stop: vi.fn().mockResolvedValue(undefined),
+      vscodeLmTools: { enabled: false, count: 0 },
+    });
+    const bundleFn = vi
+      .fn()
+      .mockResolvedValue({ success: true, code: "var __copilotkit_playground = {};" });
+    const codegenFn = vi.fn().mockReturnValue({
+      outDir: "/tmp/x",
+      entryPath: "/tmp/x/entry.tsx",
+    });
+
+    vscodeMocks.showWarningMessage.mockClear();
+
+    const provider = new PlaygroundViewProvider(
+      { fsPath: "/fake", scheme: "file" } as never,
+      { onRefresh: vi.fn(), onOpenSource: vi.fn() },
+      makeDeps({
+        startRuntimeHost,
+        bundle: bundleFn,
+        writeSources: codegenFn,
+        fixtureStore: {
+          list: listFn,
+          read: readFn,
+          save: vi.fn(),
+          delete: vi.fn(),
+        },
+      }),
+    );
+    const view = makeWebview();
+    provider.resolveWebviewView(view as never, {} as never, {} as never);
+    view.send({ type: "ready" });
+
+    view.webview.postMessage.mockClear();
+    listFn.mockClear();
+
+    view.send({ type: "load-fixture", filePath: "/ghost/x.json" });
+    await new Promise((r) => setTimeout(r, 30));
+
+    // Fresh fixtures-list must be posted so the stale UI entry vanishes.
+    expect(view.webview.postMessage).toHaveBeenCalledWith({
+      type: "fixtures-list",
+      fixtures: [],
+    });
+    // User gets a one-shot warning.
+    expect(vscodeMocks.showWarningMessage).toHaveBeenCalledTimes(1);
+
+    // CRITICAL: a subsequent rebundle must NOT try to read the ghost
+    // fixture (replayFixturePath should not have been committed) and
+    // must start the runtime in record mode rather than dying with
+    // ENOENT.
+    readFn.mockClear();
+    startRuntimeHost.mockClear();
+    provider.setScanResult({
+      providers: [
+        {
+          filePath: "/x/App.tsx",
+          loc: { line: 1, column: 0, endLine: 1, endColumn: 1 },
+          importedName: "CopilotKitProvider",
+          importSource: "@copilotkit/react-core/v2",
+          props: {},
+        },
+      ],
+      componentsWithHooks: [],
+      hookSites: [],
+      warnings: [],
+    });
+    await new Promise((r) => setTimeout(r, 30));
+
+    expect(readFn).not.toHaveBeenCalled();
+    expect(startRuntimeHost).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: "record" }),
+    );
+  });
+
+  it("runBundle recovers when the active fixture vanishes mid-session", async () => {
+    // First read (during load-fixture) succeeds; second read (during the
+    // forced rebundle) throws to simulate the file being deleted between
+    // load-fixture and the next runBundle pass.
+    let allowRead = true;
+    const readFn = vi.fn().mockImplementation(() => {
+      if (allowRead) {
+        return {
+          metadata: {
+            name: "X",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            modelId: "m",
+            modelVendor: "v",
+            version: 2 as const,
+          },
+          calls: [],
+        };
+      }
+      throw new Error("ENOENT");
+    });
+    const listFn = vi.fn().mockReturnValue([]);
+    const startRuntimeHost = vi.fn().mockResolvedValue({
+      url: "http://127.0.0.1:22222",
+      stop: vi.fn().mockResolvedValue(undefined),
+      vscodeLmTools: { enabled: false, count: 0 },
+    });
+    const bundleFn = vi
+      .fn()
+      .mockResolvedValue({ success: true, code: "var __copilotkit_playground = {};" });
+    const codegenFn = vi.fn().mockReturnValue({
+      outDir: "/tmp/x",
+      entryPath: "/tmp/x/entry.tsx",
+    });
+
+    const provider = new PlaygroundViewProvider(
+      { fsPath: "/fake", scheme: "file" } as never,
+      { onRefresh: vi.fn(), onOpenSource: vi.fn() },
+      makeDeps({
+        startRuntimeHost,
+        bundle: bundleFn,
+        writeSources: codegenFn,
+        fixtureStore: {
+          list: listFn,
+          read: readFn,
+          save: vi.fn(),
+          delete: vi.fn(),
+        },
+      }),
+    );
+    const view = makeWebview();
+    provider.resolveWebviewView(view as never, {} as never, {} as never);
+    view.send({ type: "ready" });
+
+    view.send({ type: "load-fixture", filePath: "/some/x.json" });
+    await new Promise((r) => setTimeout(r, 30));
+
+    // Simulate the file being deleted out from under us. The next
+    // rebundle must NOT propagate ENOENT — it must clear the stale
+    // path, refresh fixtures-list, and start the runtime in record
+    // mode so the chat surface unsticks.
+    allowRead = false;
+    startRuntimeHost.mockClear();
+    view.webview.postMessage.mockClear();
+
+    provider.setScanResult({
+      providers: [
+        {
+          filePath: "/x/App.tsx",
+          loc: { line: 1, column: 0, endLine: 1, endColumn: 1 },
+          importedName: "CopilotKitProvider",
+          importSource: "@copilotkit/react-core/v2",
+          props: {},
+        },
+      ],
+      componentsWithHooks: [],
+      hookSites: [],
+      warnings: [],
+    });
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(startRuntimeHost).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: "record" }),
+    );
+    // A bundle-ready must eventually fire — the chat must unstick.
+    expect(view.webview.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "bundle-ready" }),
+    );
+    // And the sidebar gets a fresh list (entry gone).
+    expect(view.webview.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "fixtures-list" }),
+    );
+  });
+});
+
+describe("PlaygroundViewProvider — refreshFixturesList", () => {
+  it("posts a fresh fixtures-list to the webview", () => {
+    const listFn = vi
+      .fn()
+      .mockReturnValueOnce([])
+      .mockReturnValueOnce([
+        {
+          filePath: "/fake/.copilotkit/fixtures/a.json",
+          metadata: {
+            name: "A",
+            createdAt: "2026-01-01T00:00:00.000Z",
+            modelId: "m",
+            modelVendor: "v",
+            version: 2 as const,
+          },
+        },
+      ]);
+    const provider = new PlaygroundViewProvider(
+      { fsPath: "/fake", scheme: "file" } as never,
+      { onRefresh: vi.fn(), onOpenSource: vi.fn() },
+      makeDeps({
+        fixtureStore: {
+          list: listFn,
+          read: vi.fn(),
+          save: vi.fn(),
+          delete: vi.fn(),
+        },
+      }),
+    );
+    const view = makeWebview();
+    provider.resolveWebviewView(view as never, {} as never, {} as never);
+    view.send({ type: "ready" });
+
+    view.webview.postMessage.mockClear();
+    provider.refreshFixturesList();
+
+    expect(view.webview.postMessage).toHaveBeenCalledWith({
+      type: "fixtures-list",
+      fixtures: expect.arrayContaining([
+        expect.objectContaining({ metadata: expect.objectContaining({ name: "A" }) }),
+      ]),
+    });
+  });
+
+  it("clears the active replay path if its backing file is gone", async () => {
+    // Pick a path that definitely does not exist on disk so the
+    // fs.existsSync check inside refreshFixturesList returns false.
+    const phantomPath = "/this/path/does/not/exist/x.json";
+    const readFn = vi.fn().mockReturnValue({
+      metadata: {
+        name: "X",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        modelId: "m",
+        modelVendor: "v",
+        version: 2 as const,
+      },
+      calls: [],
+    });
+    const startRuntimeHost = vi.fn().mockResolvedValue({
+      url: "http://127.0.0.1:22222",
+      stop: vi.fn().mockResolvedValue(undefined),
+      vscodeLmTools: { enabled: false, count: 0 },
+    });
+    const bundleFn = vi.fn().mockResolvedValue({
+      code: "var __copilotkit_playground = {};",
+      success: true,
+    });
+    const codegenFn = vi.fn().mockReturnValue({
+      outDir: "/tmp/ignored",
+      entryPath: "/tmp/ignored/entry.tsx",
+    });
+
+    const provider = new PlaygroundViewProvider(
+      { fsPath: "/fake", scheme: "file" } as never,
+      { onRefresh: vi.fn(), onOpenSource: vi.fn() },
+      makeDeps({
+        startRuntimeHost,
+        bundle: bundleFn,
+        writeSources: codegenFn,
+        fixtureStore: {
+          list: vi.fn().mockReturnValue([]),
+          read: readFn,
+          save: vi.fn(),
+          delete: vi.fn(),
+        },
+      }),
+    );
+    const view = makeWebview();
+    provider.resolveWebviewView(view as never, {} as never, {} as never);
+    view.send({ type: "ready" });
+
+    // Pretend the user clicked ▶ on a fixture that no longer exists.
+    view.send({ type: "load-fixture", filePath: phantomPath });
+    await new Promise((r) => setTimeout(r, 30));
+
+    // Drop our stale view of the active fixture.
+    provider.refreshFixturesList();
+
+    // The next rebundle must NOT try to read the missing fixture and
+    // must start the runtime in "record" mode (the fallback).
+    startRuntimeHost.mockClear();
+    readFn.mockClear();
+    provider.setScanResult({
+      providers: [
+        {
+          filePath: "/x/App.tsx",
+          loc: { line: 1, column: 0, endLine: 1, endColumn: 1 },
+          importedName: "CopilotKitProvider",
+          importSource: "@copilotkit/react-core/v2",
+          props: {},
+        },
+      ],
+      componentsWithHooks: [],
+      hookSites: [],
+      warnings: [],
+    });
+    await new Promise((r) => setTimeout(r, 30));
+
+    expect(readFn).not.toHaveBeenCalled();
+    expect(startRuntimeHost).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: "record" }),
     );
   });
 });
