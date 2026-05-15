@@ -4,6 +4,8 @@ import type { FormSchema } from "./types";
 
 interface StandardSchemaLike {
   "~standard"?: { vendor?: string; version?: number };
+  /** Zod 4+ exposes a native toJSONSchema() method on schema objects. */
+  toJSONSchema?: () => Record<string, unknown>;
 }
 
 export function standardSchemaToFormSchema(schema: unknown): FormSchema {
@@ -12,8 +14,14 @@ export function standardSchemaToFormSchema(schema: unknown): FormSchema {
 
   if (vendor === "zod") {
     try {
-      const json = zodToJsonSchema(
-        schema as Parameters<typeof zodToJsonSchema>[0],
+      // Zod 4+ has a native toJSONSchema(); prefer it over zod-to-json-schema
+      // which doesn't fully support Zod 4's internal schema representation.
+      const json = (
+        typeof s?.toJSONSchema === "function"
+          ? s.toJSONSchema()
+          : zodToJsonSchema(
+              schema as Parameters<typeof zodToJsonSchema>[0],
+            )
       ) as JSONSchemaNode;
       return jsonSchemaToFormSchema(json);
     } catch (err) {
