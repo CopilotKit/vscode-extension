@@ -11,8 +11,28 @@ updates:
     reviewers:
       - "jpr5"
     open-pull-requests-limit: 10
-  - package-ecosystem: "github-actions"
-    directory: "/"
+    cooldown:
+      default-days: 1
+  - package-ecosystem: github-actions
+    directory: /
     schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
+      interval: daily
+    groups:
+      minor-and-patch:
+        patterns: ["*"]
+        update-types:
+          - minor
+          - patch
+      major:
+        patterns: ["*"]
+        update-types:
+          - major
+    labels:
+      - dependencies
+      - github-actions
+    commit-message:
+      prefix: "ci"
+      include: "scope"
+    open-pull-requests-limit: 10
+    cooldown:
+      default-days: 1
