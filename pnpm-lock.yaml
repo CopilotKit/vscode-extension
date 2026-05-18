@@ -58,8 +58,8 @@ importers:
         specifier: ^19.0.0
         version: 19.2.3(@types/react@19.2.14)
       '@types/vscode':
-        specifier: ^1.90.0
-        version: 1.116.0
+        specifier: ^1.120.0
+        version: 1.120.0
       '@vscode/vsce':
         specifier: ^3.0.0
         version: 3.9.1
@@ -1890,8 +1890,8 @@ packages:
   '@types/validator@13.15.10':
     resolution: {integrity: sha512-T8L6i7wCuyoK8A/ZeLYt1+q0ty3Zb9+qbSSvrIVitzT3YjZqkTZ40IbRsPanlB4h1QB3JVL1SYCdR6ngtFYcuA==}
 
-  '@types/vscode@1.116.0':
-    resolution: {integrity: sha512-sYHp4MO6BqJ2PD7Hjt0hlIS3tMaYsVPJrd0RUjDJ8HtOYnyJIEej0bLSccM8rE77WrC+Xox/kdBwEFDO8MsxNA==}
+  '@types/vscode@1.120.0':
+    resolution: {integrity: sha512-feaT4Rst+FkTch5zz/ZbNCxoIvo55YU80Be2kiL7OJcod4+CUYf2lUBPdIJzozNnSEMq1VRTGrWEcCGFB3fBmA==}
 
   '@typespec/ts-http-runtime@0.3.5':
     resolution: {integrity: sha512-yURCknZhvywvQItHMMmFSo+fq5arCUIyz/CVk7jD89MSai7dkaX8ufjCWp3NttLojoTVbcE72ri+be/TnEbMHw==}
@@ -6965,7 +6965,7 @@ snapshots:
 
   '@types/validator@13.15.10': {}
 
-  '@types/vscode@1.116.0': {}
+  '@types/vscode@1.120.0': {}
 
   '@typespec/ts-http-runtime@0.3.5':
     dependencies:
