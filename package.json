@@ -1,0 +1,214 @@
+{
+  "name": "copilotkit-vscode-extension",
+  "displayName": "CopilotKit",
+  "version": "0.2.3",
+  "description": "Preview generative-UI components, explore CopilotKit hooks, and inspect AG-UI agent runs — all without leaving your editor.",
+  "categories": [
+    "Other",
+    "Visualization"
+  ],
+  "keywords": [
+    "a2ui",
+    "ag-ui",
+    "agents",
+    "ai",
+    "copilotkit",
+    "generative-ui",
+    "hook-explorer",
+    "inspector",
+    "preview",
+    "react"
+  ],
+  "homepage": "https://vscode.copilotkit.dev",
+  "bugs": {
+    "url": "https://github.com/CopilotKit/vscode-extension/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CopilotKit/vscode-extension"
+  },
+  "publisher": "copilotkit",
+  "type": "module",
+  "main": "dist/extension/activate.cjs",
+  "scripts": {
+    "build": "tsdown",
+    "dev": "tsdown --watch",
+    "check-types": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "vscode:prepublish": "pnpm run build",
+    "package": "vsce package"
+  },
+  "dependencies": {
+    "@ag-ui/client": "0.0.53",
+    "@copilotkit/runtime": "^1.56.5",
+    "@tailwindcss/node": "^4.3.0",
+    "@tailwindcss/oxide": "^4.3.0",
+    "ignore": "^7.0.5",
+    "openai": "^6.37.0",
+    "oxc-parser": "^0.130.0",
+    "rolldown": "^1.0.1",
+    "tailwindcss": "^4.1.0",
+    "zod": "^4.4.3",
+    "zod-to-json-schema": "^3.25.2"
+  },
+  "devDependencies": {
+    "@copilotkit/a2ui-renderer": "^1.56.5",
+    "@copilotkit/react-core": "^1.56.5",
+    "@testing-library/react": "^16.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/vscode": "^1.90.0",
+    "@vscode/vsce": "^3.0.0",
+    "jsdom": "^26.0.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "tsdown": "^0.22.0",
+    "typescript": "~5.8.2",
+    "unrun": "^0.3.0",
+    "vitest": "^3.1.1"
+  },
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "copilotkit",
+          "title": "CopilotKit",
+          "icon": "icons/copilotkit.svg"
+        }
+      ]
+    },
+    "views": {
+      "copilotkit": [
+        {
+          "id": "copilotkit.hooks",
+          "type": "webview",
+          "name": "Generative UI"
+        },
+        {
+          "id": "copilotkit.componentPreview",
+          "type": "webview",
+          "name": "A2UI Catalog"
+        },
+        {
+          "id": "copilotkit.inspector",
+          "type": "webview",
+          "name": "AG-UI Inspector"
+        },
+        {
+          "id": "copilotkit.chat",
+          "type": "webview",
+          "name": "Chat"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "copilotkit.previewComponent",
+        "title": "CopilotKit: Preview Component"
+      },
+      {
+        "command": "copilotkit.previewComponentFromExplorer",
+        "title": "CopilotKit: Preview Component"
+      },
+      {
+        "command": "copilotkit.previewComponentFromSidebar",
+        "title": "Preview Component"
+      },
+      {
+        "command": "copilotkit.refreshComponents",
+        "title": "Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "copilotkit.openInspector",
+        "title": "CopilotKit: Open AG-UI Inspector",
+        "icon": "$(pulse)"
+      },
+      {
+        "command": "copilotkit.hooks.refresh",
+        "title": "Refresh",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "copilotkit.hooks.preview",
+        "title": "CopilotKit: Preview Hook Render"
+      },
+      {
+        "command": "copilotkit.hooks.openSource",
+        "title": "Open Source"
+      },
+      {
+        "command": "copilotkit.hooks.copyIdentity",
+        "title": "Copy Hook Identity"
+      },
+      {
+        "command": "copilotkit.hooks.focusPanel",
+        "title": "CopilotKit: Preview Hook Render…"
+      },
+      {
+        "command": "copilotkit.chat.refresh",
+        "title": "Refresh",
+        "icon": "$(refresh)"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "copilotkit.previewComponentFromExplorer",
+          "when": "resourceExtname =~ /\\.(ts|tsx)$/"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "copilotkit.refreshComponents",
+          "when": "view == copilotkit.componentPreview",
+          "group": "navigation"
+        },
+        {
+          "command": "copilotkit.openInspector",
+          "when": "view == copilotkit.inspector",
+          "group": "navigation"
+        },
+        {
+          "command": "copilotkit.hooks.refresh",
+          "when": "view == copilotkit.hooks",
+          "group": "navigation"
+        },
+        {
+          "command": "copilotkit.chat.refresh",
+          "when": "view == copilotkit.chat",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": []
+    },
+    "configuration": {
+      "title": "CopilotKit",
+      "properties": {
+        "copilotkit.playground.model": {
+          "type": "string",
+          "default": "",
+          "description": "Preferred model id for the CopilotKit playground chat. Leave empty to use the first available model from VS Code's Language Model API."
+        },
+        "copilotkit.playground.enableVscodeLmTools": {
+          "type": "boolean",
+          "default": true,
+          "description": "Expose VS Code's Language Model tools (e.g. GitHub Copilot's fetch_webpage, search_workspace) to the playground model alongside your registered tools. The model can call them; they execute in the extension host via vscode.lm.invokeTool and the results feed back into the conversation. On by default so the playground model can reach the web and other system capabilities; set to false to mirror only your own tool surface."
+        },
+        "copilotkit.playground.tailwindEntryCss": {
+          "type": "string",
+          "default": "",
+          "description": "Optional path (absolute, or relative to the workspace root) to the CSS file the playground should pass to Tailwind v4 when compiling per-app utility styles. Leave empty to auto-detect common locations like src/app/globals.css. Set this only if your entry CSS lives somewhere non-standard."
+        }
+      }
+    }
+  },
+  "activationEvents": [],
+  "icon": "icons/copilotkit.png",
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "pricing": "Free"
+}

@@ -1,0 +1,911 @@
+/**
+ * Source string of the PlaygroundChat module written into the generated
+ * playground entry directory at codegen time.
+ *
+ * The chat surface drives the runtime DIRECTLY rather than going through
+ * `copilotkit.runAgent({ agent })`. After multiple debug rounds, runAgent
+ * silently completes without firing a fetch in this environment — agent
+ * is somehow inert. We fetch the SSE endpoint ourselves with a hand-built
+ * RunAgentInput and parse the AG-UI event stream into local state.
+ *
+ * The user's hook registrations (useFrontendTool, useRenderTool,
+ * useComponent, useCopilotAction({ render }), useDefaultRenderTool, …)
+ * still register on the real CopilotKitProvider above us, so we look up
+ * tool renderers via `useRenderToolCall()` — the same hook CopilotChat's
+ * internals use — and render them inline.
+ */
+export const PLAYGROUND_CHAT_SOURCE = `
+import * as React from "react";
+import {
+  useCopilotKit,
+  useRenderToolCall,
+} from "@copilotkit/react-core/v2";
+
+const DEFAULT_AGENT_ID = "default";
+
+interface ToolCall {
+  id: string;
+  type: "function";
+  function: { name: string; arguments: string };
+}
+
+interface ChatMessage {
+  id: string;
+  role: "user" | "assistant" | "tool";
+  content: string;
+  toolCalls?: ToolCall[];
+  toolCallId?: string;
+}
+
+function uuid(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Lightweight markdown renderer for assistant text. The LLM streams
+ * markdown (\`**bold**\`, headings, lists, fenced code, inline code,
+ * links), and rendering it as raw text leaves visible asterisks /
+ * underscores in the output. Pulling in a full markdown library
+ * inflates the playground bundle by ~150 KB and we only need a small
+ * subset of CommonMark for chat replies, so a focused parser lives
+ * here instead.
+ *
+ * Returns React elements directly (no \`dangerouslySetInnerHTML\` →
+ * no XSS surface, no need to maintain an escape pass).
+ */
+function MarkdownText({ text }: { text: string }): React.ReactElement {
+  const blocks = React.useMemo(() => parseMarkdown(text), [text]);
+  return <div className="playground-chat-md">{blocks}</div>;
+}
+
+function parseMarkdown(md: string): React.ReactNode[] {
+  const lines = md.split("\\n");
+  const out: React.ReactNode[] = [];
+  let i = 0;
+  let key = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    if (line.startsWith("\`\`\`")) {
+      const codeLines: string[] = [];
+      i++;
+      while (i < lines.length && !lines[i].startsWith("\`\`\`")) {
+        codeLines.push(lines[i]);
+        i++;
+      }
+      i++;
+      out.push(
+        <pre key={key++}>
+          <code>{codeLines.join("\\n")}</code>
+        </pre>,
+      );
+      continue;
+    }
+
+    const heading = line.match(/^(#{1,3})\\s+(.+)$/);
+    if (heading) {
+      const level = Math.min(heading[1].length + 1, 4);
+      const tag = ("h" + level) as "h2" | "h3" | "h4";
+      out.push(
+        React.createElement(tag, { key: key++ }, parseInline(heading[2])),
+      );
+      i++;
+      continue;
+    }
+
+    if (line.match(/^[-*]\\s+/)) {
+      const items: React.ReactNode[] = [];
+      let liKey = 0;
+      while (i < lines.length && lines[i].match(/^[-*]\\s+/)) {
+        const text = lines[i].replace(/^[-*]\\s+/, "");
+        items.push(<li key={liKey++}>{parseInline(text)}</li>);
+        i++;
+      }
+      out.push(<ul key={key++}>{items}</ul>);
+      continue;
+    }
+
+    if (line.match(/^\\d+\\.\\s+/)) {
+      const items: React.ReactNode[] = [];
+      let liKey = 0;
+      while (i < lines.length && lines[i].match(/^\\d+\\.\\s+/)) {
+        const text = lines[i].replace(/^\\d+\\.\\s+/, "");
+        items.push(<li key={liKey++}>{parseInline(text)}</li>);
+        i++;
+      }
+      out.push(<ol key={key++}>{items}</ol>);
+      continue;
+    }
+
+    if (line === "") {
+      i++;
+      continue;
+    }
+
+    // Paragraph: gather consecutive non-empty, non-block-prefix lines.
+    const paraLines: string[] = [];
+    while (
+      i < lines.length &&
+      lines[i] !== "" &&
+      !lines[i].match(/^(#{1,3}\\s+|[-*]\\s+|\\d+\\.\\s+|\`\`\`)/)
+    ) {
+      paraLines.push(lines[i]);
+      i++;
+    }
+    const paraNodes: React.ReactNode[] = [];
+    let nodeKey = 0;
+    paraLines.forEach((l, idx) => {
+      if (idx > 0) paraNodes.push(<br key={"br" + nodeKey++} />);
+      const inline = parseInline(l);
+      for (const n of inline) paraNodes.push(n);
+    });
+    out.push(<p key={key++}>{paraNodes}</p>);
+  }
+
+  return out;
+}
+
+/**
+ * Inline markdown → React nodes. Handles \`***x***\`, \`**x**\`, \`*x*\`,
+ * \`_x_\`, \`\\\`x\\\`\`, and \`[text](url)\` in a single tokenizer pass so
+ * nested cases (\`***bold italic***\` → \`<strong><em>...\` ) work.
+ */
+function parseInline(text: string): React.ReactNode[] {
+  const out: React.ReactNode[] = [];
+  let key = 0;
+  // One regex with alternative groups; \`matchAll\` returns indexed
+  // matches we walk in order. The capture-group indices are stable so
+  // we can dispatch per pattern.
+  const re =
+    /(\\*\\*\\*([^*]+?)\\*\\*\\*)|(\\*\\*([^*]+?)\\*\\*)|(\\*([^*\\n]+?)\\*)|(_([^_\\n]+?)_)|(\`([^\`]+?)\`)|(\\[([^\\]]+?)\\]\\(([^)]+?)\\))/g;
+  let last = 0;
+  for (const match of text.matchAll(re)) {
+    const idx = match.index ?? 0;
+    if (idx > last) out.push(text.slice(last, idx));
+    if (match[2] !== undefined) {
+      out.push(
+        <strong key={key++}>
+          <em>{match[2]}</em>
+        </strong>,
+      );
+    } else if (match[4] !== undefined) {
+      out.push(<strong key={key++}>{match[4]}</strong>);
+    } else if (match[6] !== undefined) {
+      out.push(<em key={key++}>{match[6]}</em>);
+    } else if (match[8] !== undefined) {
+      out.push(<em key={key++}>{match[8]}</em>);
+    } else if (match[10] !== undefined) {
+      out.push(<code key={key++}>{match[10]}</code>);
+    } else if (match[12] !== undefined && match[13] !== undefined) {
+      const href = sanitizeHref(match[13]);
+      out.push(
+        <a
+          key={key++}
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          {match[12]}
+        </a>,
+      );
+    }
+    last = idx + match[0].length;
+  }
+  if (last < text.length) out.push(text.slice(last));
+  return out;
+}
+
+/**
+ * Allow only http(s) and mailto links. Everything else (javascript:,
+ * data:, vbscript:, …) collapses to "#" so a maliciously-crafted
+ * model output can't smuggle a script-URL through.
+ */
+function sanitizeHref(href: string): string {
+  const trimmed = href.trim();
+  if (/^(https?:|mailto:)/i.test(trimmed)) return trimmed;
+  if (trimmed.startsWith("/") || trimmed.startsWith("#")) return trimmed;
+  return "#";
+}
+
+function getRuntimeUrl(copilotkit: unknown): string {
+  // CopilotKit core stores runtimeUrl on the public surface — we read it
+  // off the instance the user's CopilotKitProvider created.
+  const c = copilotkit as { runtimeUrl?: string };
+  return (c.runtimeUrl ?? "").replace(/\\/$/, "");
+}
+
+interface FrontendTool {
+  name: string;
+  description?: string;
+  parameters?: unknown;
+}
+
+interface RegisteredTool {
+  name: string;
+  handler?: (args: unknown, ctx: unknown) => Promise<unknown>;
+  /**
+   * V2 frontend-tool flag. \`false\` means "after this tool runs, do NOT
+   * loop the model for another reply" — the rendered card IS the answer.
+   * Defaults to \`true\` (loop, i.e. ask the model what to say next), to
+   * match the runtime's default behavior.
+   */
+  followUp?: boolean;
+}
+
+function getFrontendTools(
+  copilotkit: unknown,
+  agentId: string,
+): FrontendTool[] {
+  // \`copilotkit.buildFrontendTools(agentId)\` is the same call CopilotKit's
+  // run-handler uses to assemble the tool list it sends with each run.
+  // It collects everything registered via useCopilotAction, useFrontendTool,
+  // useHumanInTheLoop, etc. and converts to the AG-UI Tool shape. Without
+  // this the model has no idea any of the user's hooks exist.
+  const c = copilotkit as {
+    buildFrontendTools?: (agentId?: string) => FrontendTool[];
+    tools?: FrontendTool[];
+  };
+  if (typeof c.buildFrontendTools === "function") {
+    try {
+      return c.buildFrontendTools(agentId) ?? [];
+    } catch {
+      /* fall through */
+    }
+  }
+  return Array.isArray(c.tools) ? c.tools : [];
+}
+
+function getRegisteredTools(copilotkit: unknown): RegisteredTool[] {
+  // \`copilotkit.tools\` holds the live FrontendTool array, including
+  // each tool's \`handler\` callback. We need this (not buildFrontendTools,
+  // which strips handlers) to run a tool when the model calls it.
+  const c = copilotkit as { tools?: RegisteredTool[] };
+  return Array.isArray(c.tools) ? c.tools : [];
+}
+
+const MAX_TOOL_STEPS = 5;
+
+export function PlaygroundChat(): React.ReactElement {
+  const { copilotkit } = useCopilotKit();
+  const renderToolCall = useRenderToolCall();
+  const runtimeUrl = getRuntimeUrl(copilotkit);
+
+  const [threadId] = React.useState(uuid);
+  const [messages, setMessages] = React.useState<ChatMessage[]>([]);
+  const [input, setInput] = React.useState("");
+  const [isRunning, setIsRunning] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const messagesRef = React.useRef<ChatMessage[]>(messages);
+  messagesRef.current = messages;
+  const inputRef = React.useRef<HTMLInputElement | null>(null);
+
+  // Re-focus the input after a turn completes. The input is disabled
+  // while \`isRunning\` is true (so the browser blurs it on entry), and
+  // we want the user to keep typing without re-clicking.
+  React.useEffect(() => {
+    if (!isRunning) {
+      inputRef.current?.focus();
+    }
+  }, [isRunning]);
+
+  // Replay listener: when the user clicks ▶ on a saved fixture, the
+  // extension shell dispatches a window event with the reconstructed
+  // conversation. We animate the messages in one at a time so the user
+  // can watch the saved chat play back. Inputs are blocked while
+  // \`isReplaying\` is true so the user can't double-drive the chat.
+  const [isReplaying, setIsReplaying] = React.useState(false);
+  React.useEffect(() => {
+    function onReplay(ev: Event): void {
+      const detail = (ev as CustomEvent<{ messages: ChatMessage[] }>).detail;
+      const queue = detail?.messages ?? [];
+      if (queue.length === 0) return;
+      setError(null);
+      setMessages([]);
+      setIsReplaying(true);
+      let cancelled = false;
+      void (async () => {
+        for (let i = 0; i < queue.length && !cancelled; i++) {
+          const m = queue[i];
+          // Pause is shorter for tool messages (visually they cluster
+          // with their preceding assistant message), longer between
+          // user/assistant turns so the playback feels paced.
+          const delay = m.role === "tool" ? 250 : 700;
+          setMessages((prev) => [...prev, m]);
+          await sleep(delay);
+        }
+        if (!cancelled) setIsReplaying(false);
+      })();
+      // Cancel an in-flight replay if a new one starts.
+      const cancelHandler = (): void => {
+        cancelled = true;
+      };
+      window.addEventListener("copilotkit-playground-replay", cancelHandler, {
+        once: true,
+      });
+    }
+    window.addEventListener("copilotkit-playground-replay", onReplay);
+    return () =>
+      window.removeEventListener("copilotkit-playground-replay", onReplay);
+  }, []);
+
+  const handleSend = React.useCallback(async () => {
+    const text = input.trim();
+    if (!text || isRunning) return;
+    if (!runtimeUrl) {
+      setError("PlaygroundChat: runtimeUrl missing on copilotkit instance");
+      return;
+    }
+
+    setError(null);
+    const userMsg: ChatMessage = {
+      id: uuid(),
+      role: "user",
+      content: text,
+    };
+    let workingMessages: ChatMessage[] = [...messagesRef.current, userMsg];
+    setMessages(workingMessages);
+    setInput("");
+    setIsRunning(true);
+
+    try {
+      // Tool-calling loop: each iteration POSTs the conversation, streams
+      // back an assistant turn, then if the assistant emitted tool calls
+      // we execute their handlers and feed the results back. Caps at
+      // MAX_TOOL_STEPS so a misbehaving model can't loop forever.
+      let lastTurn: {
+        assistantMessage: ChatMessage;
+        toolCalls: ToolCall[];
+        serverHandledToolCallIds: Set<string>;
+        serverToolMessages: ChatMessage[];
+      } | null = null;
+      let stepCount = 0;
+      for (let step = 0; step < MAX_TOOL_STEPS; step++) {
+        stepCount = step + 1;
+        const turn = await runOneTurn(workingMessages);
+        lastTurn = turn;
+        workingMessages = [
+          ...workingMessages,
+          turn.assistantMessage,
+          // Server-handled tools (e.g. vscode.lm) had their results
+          // streamed back; record them in the conversation history so
+          // the next POST sees them.
+          ...turn.serverToolMessages,
+        ];
+        setMessages(workingMessages);
+
+        if (!turn.toolCalls.length) break;
+
+        // Execute every tool call's handler in parallel; append results
+        // as tool messages. Skip tools the runtime already executed
+        // server-side (vscode.lm tools).
+        const registry = getRegisteredTools(copilotkit);
+        const toolResults = await Promise.all(
+          turn.toolCalls.map(async (tc): Promise<ChatMessage | null> => {
+            if (turn.serverHandledToolCallIds.has(tc.id)) return null;
+            const tool = registry.find((t) => t.name === tc.function.name);
+            if (!tool || typeof tool.handler !== "function") {
+              // No frontend handler — could be useHumanInTheLoop awaiting
+              // user action, or a render-only tool. Surface the call but
+              // don't synthesize a result; conversation halts here.
+              return null;
+            }
+            let parsedArgs: unknown = {};
+            try {
+              parsedArgs = tc.function.arguments
+                ? JSON.parse(tc.function.arguments)
+                : {};
+            } catch {
+              parsedArgs = tc.function.arguments;
+            }
+            try {
+              const result = await tool.handler(parsedArgs, {
+                toolCall: tc,
+                agent: null,
+                signal: undefined,
+              });
+              return {
+                id: uuid(),
+                role: "tool",
+                toolCallId: tc.id,
+                content:
+                  typeof result === "string"
+                    ? result
+                    : JSON.stringify(result ?? null),
+              };
+            } catch (err) {
+              return {
+                id: uuid(),
+                role: "tool",
+                toolCallId: tc.id,
+                content: JSON.stringify({
+                  error: err instanceof Error ? err.message : String(err),
+                }),
+              };
+            }
+          }),
+        );
+
+        const filledResults = toolResults.filter(
+          (m): m is ChatMessage => m !== null,
+        );
+
+        // Decide whether to continue. We do another turn iff at least
+        // one tool result will reach the model on the next POST —
+        // either a local handler we just executed, OR a server-side
+        // tool the runtime handled (its result is already appended
+        // to workingMessages above via serverToolMessages). If neither
+        // applies, every tool call was render-only / human-in-the-loop
+        // and the conversation is parked here.
+        if (
+          filledResults.length === 0 &&
+          turn.serverToolMessages.length === 0
+        ) {
+          break;
+        }
+
+        if (filledResults.length > 0) {
+          workingMessages = [...workingMessages, ...filledResults];
+          setMessages(workingMessages);
+        }
+
+        // Respect \`followUp: false\` on registered tools. When every tool
+        // the assistant just called is display-only (the rendered card IS
+        // the answer), looping again just asks the model to either repeat
+        // the call or summarize its own UI — neither is useful and both
+        // burn turns toward the MAX_TOOL_STEPS cap. Bail out so the chat
+        // ends here and the user sees the rendered card(s) as the reply.
+        const allDisplayOnly =
+          turn.toolCalls.length > 0 &&
+          turn.toolCalls.every((tc) => {
+            if (turn.serverHandledToolCallIds.has(tc.id)) return false;
+            const t = registry.find((reg) => reg.name === tc.function.name);
+            return t?.followUp === false;
+          });
+        if (allDisplayOnly) break;
+      }
+
+      // If we exited the loop because we hit the cap and the final
+      // assistant message has no text — the model just kept calling
+      // tools and never spoke — surface that to the user instead of
+      // leaving the chat dead-silent.
+      if (
+        lastTurn &&
+        lastTurn.toolCalls.length > 0 &&
+        !lastTurn.assistantMessage.content &&
+        stepCount >= MAX_TOOL_STEPS
+      ) {
+        setError(
+          \`Tool-calling loop hit the \${MAX_TOOL_STEPS}-step cap without a text reply. The model kept calling tools and their handlers returned values it couldn't use. Check the handlers (often returning "" / null) on your useFrontendTool / useCopilotAction registrations.\`,
+        );
+      }
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error("[playground-chat] send failed", err);
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setIsRunning(false);
+    }
+
+    /**
+     * One turn: POST messages, stream the response, return the assistant
+     * message we accumulated. Patches \`workingMessages\` into local state
+     * as we go so deltas appear live.
+     */
+    async function runOneTurn(currentMessages: ChatMessage[]): Promise<{
+      assistantMessage: ChatMessage;
+      toolCalls: ToolCall[];
+      /** Tool call IDs whose results were already produced server-side
+       *  (e.g. vscode.lm tools invoked in the runtime). The outer loop
+       *  must not try to execute their handlers locally. */
+      serverHandledToolCallIds: Set<string>;
+      /** Tool result messages produced server-side, to be appended to
+       *  the conversation history for the next turn. */
+      serverToolMessages: ChatMessage[];
+    }> {
+      const runId = uuid();
+      const assistantId = uuid();
+      let textBuffer = "";
+      const toolCalls: ToolCall[] = [];
+      const serverHandledToolCallIds = new Set<string>();
+      const serverToolMessages: ChatMessage[] = [];
+      let inserted = false;
+
+      const tools = getFrontendTools(copilotkit, DEFAULT_AGENT_ID);
+      // eslint-disable-next-line no-console
+      console.log(
+        \`[playground-chat] POST \${runtimeUrl}/agent/\${DEFAULT_AGENT_ID}/run msgs=\${currentMessages.length} tools=\${tools.length}\`,
+      );
+
+      const res = await fetch(
+        \`\${runtimeUrl}/agent/\${encodeURIComponent(DEFAULT_AGENT_ID)}/run\`,
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            accept: "text/event-stream",
+          },
+          body: JSON.stringify({
+            threadId,
+            runId,
+            state: {},
+            messages: currentMessages.map((m) => ({
+              id: m.id,
+              role: m.role,
+              content: m.content,
+              ...(m.toolCalls ? { toolCalls: m.toolCalls } : {}),
+              ...(m.toolCallId ? { toolCallId: m.toolCallId } : {}),
+            })),
+            tools,
+            context: [],
+            forwardedProps: {},
+          }),
+        },
+      );
+      if (!res.ok || !res.body) {
+        throw new Error(\`runtime returned \${res.status}\`);
+      }
+
+      function ensureAssistant(): void {
+        if (inserted) return;
+        inserted = true;
+        setMessages((m) => [
+          ...m,
+          { id: assistantId, role: "assistant", content: "", toolCalls: [] },
+        ]);
+      }
+
+      function syncAssistant(): void {
+        ensureAssistant();
+        const snapshot = toolCalls.map((tc) => ({
+          ...tc,
+          function: { ...tc.function },
+        }));
+        setMessages((m) =>
+          m.map((msg) =>
+            msg.id === assistantId
+              ? { ...msg, content: textBuffer, toolCalls: snapshot }
+              : msg,
+          ),
+        );
+      }
+
+      function handleEvent(event: Record<string, unknown>): void {
+        const type = event.type as string | undefined;
+        if (
+          type === "TEXT_MESSAGE_CHUNK" ||
+          type === "TEXT_MESSAGE_CONTENT"
+        ) {
+          const delta = event.delta as string | undefined;
+          if (typeof delta === "string") {
+            textBuffer += delta;
+            syncAssistant();
+          }
+          return;
+        }
+        if (type === "TOOL_CALL_START") {
+          toolCalls.push({
+            id: event.toolCallId as string,
+            type: "function",
+            function: {
+              name: event.toolCallName as string,
+              arguments: "",
+            },
+          });
+          syncAssistant();
+          return;
+        }
+        if (type === "TOOL_CALL_ARGS") {
+          const id = event.toolCallId as string;
+          const delta = event.delta as string | undefined;
+          const tc = toolCalls.find((t) => t.id === id);
+          if (tc && typeof delta === "string") {
+            tc.function.arguments += delta;
+            syncAssistant();
+          }
+          return;
+        }
+        if (type === "TOOL_CALL_RESULT") {
+          // The runtime invoked a vscode.lm tool server-side and is
+          // shipping the result back. Record it so we both display the
+          // result in the chat AND avoid trying to call a local handler
+          // for this id in the outer loop.
+          const id = event.toolCallId as string;
+          const content =
+            typeof event.content === "string"
+              ? (event.content as string)
+              : JSON.stringify(event.content ?? null);
+          const toolMsg: ChatMessage = {
+            id: uuid(),
+            role: "tool",
+            toolCallId: id,
+            content,
+          };
+          serverHandledToolCallIds.add(id);
+          serverToolMessages.push(toolMsg);
+          setMessages((m) => [...m, toolMsg]);
+          return;
+        }
+        if (type === "RUN_ERROR") {
+          const message =
+            (event.message as string | undefined) ?? "RUN_ERROR";
+          const err = new Error(message);
+          err.name = "RunError";
+          throw err;
+        }
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        let idx: number;
+        while ((idx = buf.indexOf("\\n\\n")) >= 0) {
+          const frame = buf.slice(0, idx);
+          buf = buf.slice(idx + 2);
+          const dataLine = frame
+            .split("\\n")
+            .find((l) => l.startsWith("data:"));
+          if (!dataLine) continue;
+          const payload = dataLine.slice(5).trim();
+          if (!payload) continue;
+          try {
+            handleEvent(JSON.parse(payload));
+          } catch (err) {
+            if (err instanceof Error && err.name === "RunError") {
+              throw err;
+            }
+          }
+        }
+      }
+      if (buf.trim()) {
+        const dataLine = buf.split("\\n").find((l) => l.startsWith("data:"));
+        if (dataLine) {
+          try {
+            handleEvent(JSON.parse(dataLine.slice(5).trim()));
+          } catch (err) {
+            if (err instanceof Error && err.name === "RunError") {
+              throw err;
+            }
+          }
+        }
+      }
+      syncAssistant();
+
+      return {
+        assistantMessage: {
+          id: assistantId,
+          role: "assistant",
+          content: textBuffer,
+          toolCalls,
+        },
+        toolCalls,
+        serverHandledToolCallIds,
+        serverToolMessages,
+      };
+    }
+  }, [input, isRunning, runtimeUrl, threadId, copilotkit]);
+
+  return (
+    <div className="playground-chat-root">
+      <div className="playground-chat-messages" role="log" aria-live="polite">
+        {messages.length === 0 ? (
+          <p className="playground-chat-empty">
+            Start a conversation. The model can call any of your registered
+            tools or actions; their renderers show up inline.
+          </p>
+        ) : (
+          messages.map((m) => (
+            <MessageView
+              key={m.id}
+              message={m}
+              messages={messages}
+              renderToolCall={renderToolCall}
+            />
+          ))
+        )}
+        {isRunning && (
+          <div className="playground-chat-running" aria-label="streaming">
+            …
+          </div>
+        )}
+      </div>
+      {error && (
+        <div role="alert" className="playground-chat-error">
+          {error}
+        </div>
+      )}
+      <form
+        className="playground-chat-input-row"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void handleSend();
+        }}
+      >
+        <input
+          type="text"
+          ref={inputRef}
+          className="playground-chat-input"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder={
+            isReplaying
+              ? "Replaying…"
+              : isRunning
+                ? "Type your next message…"
+                : "Send a message…"
+          }
+          autoFocus
+        />
+        <button
+          type="submit"
+          className="playground-chat-send"
+          disabled={isRunning || isReplaying || !input.trim()}
+        >
+          {isRunning ? "…" : "Send"}
+        </button>
+      </form>
+    </div>
+  );
+}
+
+interface MessageViewProps {
+  message: ChatMessage;
+  messages: ChatMessage[];
+  renderToolCall: (props: {
+    toolCall: ToolCall;
+    toolMessage?: ChatMessage;
+  }) => React.ReactElement | null;
+}
+
+/**
+ * Per-tool-call error boundary. A single user-registered render
+ * component crashing (e.g. destructuring a missing field on the
+ * model's tool args) used to take down the entire chat webview because
+ * React unwound the whole tree. Boundary it locally so the crash is
+ * confined to that one tool card and the rest of the chat keeps
+ * working.
+ */
+interface ToolCallBoundaryProps {
+  toolName: string;
+  children: React.ReactNode;
+}
+
+interface ToolCallBoundaryState {
+  error: Error | null;
+}
+
+class ToolCallErrorBoundary extends React.Component<
+  ToolCallBoundaryProps,
+  ToolCallBoundaryState
+> {
+  state: ToolCallBoundaryState = { error: null };
+
+  static getDerivedStateFromError(error: Error): ToolCallBoundaryState {
+    return { error };
+  }
+
+  componentDidCatch(error: Error): void {
+    // eslint-disable-next-line no-console
+    console.error(
+      \`[playground-chat] tool render \${this.props.toolName} threw\`,
+      error,
+    );
+  }
+
+  render(): React.ReactNode {
+    if (this.state.error) {
+      return (
+        <div className="playground-chat-toolcall-error">
+          <strong>{this.props.toolName}</strong> render threw:{" "}
+          <code>{this.state.error.message}</code>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
+
+function MessageView({
+  message,
+  messages,
+  renderToolCall,
+}: MessageViewProps): React.ReactElement | null {
+  if (message.role === "user") {
+    return (
+      <div className="playground-chat-bubble playground-chat-bubble-user">
+        {message.content}
+      </div>
+    );
+  }
+
+  if (message.role === "assistant") {
+    // Text bubble and tool cards are rendered as SIBLINGS (not nested)
+    // so the assistant bubble's background/border doesn't double up on
+    // top of each tool card. The tool's own render owns its visual.
+    return (
+      <div className="playground-chat-message-group">
+        {message.content ? (
+          <div className="playground-chat-bubble playground-chat-bubble-assistant">
+            <MarkdownText text={message.content} />
+          </div>
+        ) : null}
+        {(message.toolCalls ?? []).map((tc) => {
+          const toolMessage = messages.find(
+            (m) => m.role === "tool" && m.toolCallId === tc.id,
+          );
+          let rendered: React.ReactElement | null = null;
+          try {
+            rendered = renderToolCall({ toolCall: tc, toolMessage });
+          } catch (err) {
+            // eslint-disable-next-line no-console
+            console.error(
+              \`[playground-chat] renderToolCall \${tc.function.name} threw\`,
+              err,
+            );
+            rendered = null;
+          }
+          return (
+            <div className="playground-chat-toolcall" key={tc.id}>
+              <button
+                type="button"
+                className="playground-chat-toolcall-name"
+                title={\`Open \${tc.function.name} in editor\`}
+                onClick={() => {
+                  // Bubble up to the webview shell, which posts to the
+                  // extension. The shell owns the vscode.postMessage
+                  // handle; the chat lives in the rolldown'd bundle and
+                  // can't acquire its own.
+                  window.dispatchEvent(
+                    new CustomEvent("copilotkit-playground-open-tool", {
+                      detail: { name: tc.function.name },
+                    }),
+                  );
+                }}
+              >
+                {tc.function.name}
+              </button>
+              <ToolCallErrorBoundary toolName={tc.function.name}>
+                {rendered ?? (
+                  <pre className="playground-chat-toolcall-args">
+                    {tc.function.arguments}
+                  </pre>
+                )}
+              </ToolCallErrorBoundary>
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  // Tool result messages: only render if no assistant tool call render
+  // already covered them.
+  if (message.role === "tool") {
+    const owningAssistant = messages.find(
+      (m) =>
+        m.role === "assistant" &&
+        (m.toolCalls ?? []).some((tc) => tc.id === message.toolCallId),
+    );
+    if (owningAssistant) return null;
+    return (
+      <div className="playground-chat-bubble playground-chat-bubble-meta">
+        <small>[tool]</small> {message.content}
+      </div>
+    );
+  }
+
+  return null;
+}
+`.trimStart();

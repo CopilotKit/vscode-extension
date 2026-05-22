@@ -1,0 +1,8 @@
+# User-recorded aimock fixtures (not test fixtures)
+.copilotkit/fixtures/
+
+node_modules/
+dist/
+*.vsix
+.vscode-test/
+*.tsbuildinfo

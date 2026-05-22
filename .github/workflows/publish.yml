@@ -1,0 +1,489 @@
+name: release / publish vscode-extension
+
+# Mirrors the CopilotKit/aimock release pattern, extended for native deps:
+#
+#   - Contributor bumps package.json + prepends CHANGELOG.md, commits as
+#     "chore(vscode-extension): release vX.Y.Z", and merges to main.
+#   - On push to main this workflow self-gates by checking the VS Code
+#     Marketplace for the current package.json version; if already published,
+#     it's a no-op.
+#   - Otherwise it builds + packages a platform-specific .vsix on a native
+#     runner per target (rolldown / oxc-parser / @tailwindcss/oxide ship
+#     per-platform native .node bindings; one universal .vsix would either
+#     bloat to 3-5x or crash on platforms whose binding is missing), then
+#     publishes each to Marketplace + Open VSX with retry wrappers, then
+#     tags vscode-extension-vX.Y.Z and cuts a GitHub Release.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Validate auth only (no publish)"
+        type: boolean
+        default: true
+
+concurrency:
+  group: publish-vscode-extension-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.pkg.outputs.version }}
+      name: ${{ steps.pkg.outputs.name }}
+      publisher: ${{ steps.pkg.outputs.publisher }}
+      ext_id: ${{ steps.pkg.outputs.ext_id }}
+      published: ${{ steps.check.outputs.published }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Read package.json version
+        id: pkg
+        run: |
+          PKG_VERSION=$(node -p "require('./package.json').version")
+          PKG_NAME=$(node -p "require('./package.json').name")
+          PUBLISHER=$(node -p "require('./package.json').publisher || 'copilotkit'")
+          EXT_ID="${PUBLISHER}.${PKG_NAME}"
+          echo "version=${PKG_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "name=${PKG_NAME}" >> "$GITHUB_OUTPUT"
+          echo "publisher=${PUBLISHER}" >> "$GITHUB_OUTPUT"
+          echo "ext_id=${EXT_ID}" >> "$GITHUB_OUTPUT"
+          echo "Resolved ${EXT_ID}@${PKG_VERSION}"
+
+      - name: Check if version already published to Marketplace
+        id: check
+        run: |
+          # Use `vsce show` to read Marketplace metadata. Unlike `npm view`
+          # there's no fast per-version endpoint, so we parse the full version
+          # list and look for an exact match. `vsce show` does not require
+          # auth for public extensions — no token needed.
+          EXT_ID="${{ steps.pkg.outputs.ext_id }}"
+          WANT="${{ steps.pkg.outputs.version }}"
+
+          # `vsce show` exits non-zero the very first time the extension is
+          # published (extension does not yet exist). Treat that as
+          # "not published".
+          set +e
+          OUT=$(npx --yes @vscode/vsce@^3 show "$EXT_ID" --json 2>/dev/null)
+          RC=$?
+          set -e
+
+          if [ $RC -ne 0 ] || [ -z "$OUT" ]; then
+            echo "vsce show returned empty or failed — treating as first-ever publish."
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          if echo "$OUT" | node -e "
+            let s=''; process.stdin.on('data',d=>s+=d).on('end',()=>{
+              try {
+                const j = JSON.parse(s);
+                const versions = (j.versions || []).map(v => v.version);
+                const found = versions.includes(process.argv[1]);
+                process.exit(found ? 0 : 1);
+              } catch (_) { process.exit(1); }
+            });
+          " "$WANT"; then
+            echo "Version $WANT already on Marketplace — nothing to do."
+            echo "published=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "Version $WANT not yet on Marketplace — will publish."
+            echo "published=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  package:
+    needs: prepare
+    if: needs.prepare.outputs.published == 'false'
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # `pkg_cpu` selects which optionalDependency native bindings get
+        # installed in node_modules before `vsce package`. For host==target
+        # (most entries) this matches the runner's arch and is a no-op. For
+        # darwin-x64 we run on macos-latest (M-series, arm64) and cross-
+        # install x64 bindings — `vsce package --target X` only stamps the
+        # manifest, so the .vsix's native bindings come from whatever's in
+        # node_modules. This avoids the macos-13 (Intel) runner, whose
+        # allocation queue can sit at hours during peak load.
+        include:
+          - target: win32-x64
+            runner: windows-latest
+            pkg_cpu: x64
+          - target: linux-x64
+            runner: ubuntu-latest
+            pkg_cpu: x64
+          - target: darwin-x64
+            runner: macos-latest
+            pkg_cpu: x64
+          - target: darwin-arm64
+            runner: macos-latest
+            pkg_cpu: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6
+        with:
+          version: "10.13.1"
+
+      - name: Setup Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 20.x
+
+      - name: Install dependencies (host arch, for build)
+        # pnpm defaults supportedArchitectures to the runner's host. The
+        # build step needs a runnable native binding (rolldown, oxc-parser,
+        # @tailwindcss/oxide), so always install host bindings first.
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      - name: Re-install for target arch (${{ matrix.pkg_cpu }})
+        # Swap node_modules' optional native bindings to match the publish
+        # target. For host==target this is a no-op; for darwin-x64 on the
+        # macos-latest (arm64) runner this prunes the arm64 bindings and
+        # installs the x64 ones, so the resulting .vsix carries exactly
+        # the bindings users on that target need.
+        shell: bash
+        run: pnpm install --frozen-lockfile --config.supportedArchitectures.cpu=${{ matrix.pkg_cpu }}
+
+      - name: Strip [Unreleased] from CHANGELOG for packaging
+        shell: bash
+        run: python3 -c "import re,pathlib;p=pathlib.Path('CHANGELOG.md');t=p.read_text();p.write_text(re.sub(r'## \[Unreleased\]\n.*?(?=\n## \d)','',t,flags=re.DOTALL) if '## [Unreleased]' in t else t)"
+
+      - name: Package VSIX (${{ matrix.target }})
+        shell: bash
+        run: npx --yes @vscode/vsce@^3 package --target ${{ matrix.target }} --out extension-${{ matrix.target }}.vsix
+
+      - name: Upload VSIX artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: vsix-${{ matrix.target }}
+          path: extension-${{ matrix.target }}.vsix
+          if-no-files-found: error
+
+  publish:
+    needs: [prepare, package]
+    if: needs.prepare.outputs.published == 'false'
+    timeout-minutes: 15
+    environment: production
+    permissions:
+      id-token: write
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [win32-x64, linux-x64, darwin-x64, darwin-arm64]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download VSIX artifact (${{ matrix.target }})
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: vsix-${{ matrix.target }}
+
+      - name: Login to Azure (OIDC → Entra SP)
+        uses: azure/login@532459ea530d8321f2fb9bb10d1e0bcf23869a43 # v3
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Verify Marketplace credential
+        run: npx --yes @vscode/vsce@^3 verify-pat --azure-credential copilotkit
+
+      - name: Verify Open VSX credential
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: |
+          set -euo pipefail
+          if [ -z "${OVSX_PAT:-}" ]; then
+            echo "::error::OVSX_PAT secret is not configured in the 'production' environment"
+            exit 1
+          fi
+          echo "::group::ovsx verify-pat copilotkit"
+          if npx --yes ovsx verify-pat copilotkit -p "$OVSX_PAT" 2>&1; then
+            echo "✅ Open VSX token has publish rights for namespace 'copilotkit'"
+          else
+            rc=$?
+            echo "::error::ovsx verify-pat failed (exit $rc) — token is invalid or lacks namespace access"
+            exit $rc
+          fi
+          echo "::endgroup::"
+
+      - name: Publish to VS Code Marketplace (${{ matrix.target }})
+        if: inputs.dry_run != true
+        id: publish_vsce
+        continue-on-error: true
+        run: |
+          set -u
+
+          # Retry wrapper for transient registry failures (502/503/504, timeouts, DNS).
+          # Treats "version already exists" as idempotent success — covers the case
+          # where a prior attempt published but its response never reached us.
+          retry_publish() {
+            local attempts=5
+            local backoff=(10 20 40 60 90)
+            local i output rc wait
+            for (( i=1; i<=attempts; i++ )); do
+              echo "::group::vsce publish attempt $i/$attempts (${{ matrix.target }})"
+              # The if/else is load-bearing: GitHub runs `bash -e`, and a
+              # failed command substitution `output=$(cmd)` under set -e
+              # terminates the script *before* the echo below can run, so
+              # vsce/ovsx errors get swallowed silently. The if-form is
+              # explicitly handled by set -e and lets both branches set rc.
+              if output=$("$@" 2>&1); then rc=0; else rc=$?; fi
+              echo "$output"
+              echo "::endgroup::"
+
+              if [ $rc -eq 0 ]; then
+                echo "Published successfully on attempt $i"
+                return 0
+              fi
+
+              # Idempotent success: version+target already published (likely by a prior attempt).
+              if echo "$output" | grep -qiE 'already exists|already published|version.*(is )?already|extension.*version.*exists'; then
+                echo "Version+target already exists — treating as idempotent success (likely landed on a prior attempt)"
+                return 0
+              fi
+
+              # Non-retryable: auth, validation, manifest errors. Fail fast.
+              if echo "$output" | grep -qiE 'invalid.*token|invalid.*access.*token|unauthorized|forbidden|401\b|403\b|TF400813|is not authorized|bad request|422\b|validation (failed|error)|manifest'; then
+                echo "::error::Non-retryable error detected (auth/validation) — failing fast"
+                return $rc
+              fi
+
+              # Retryable (5xx, timeout, DNS, connection reset, generic network).
+              if [ $i -lt $attempts ]; then
+                wait=${backoff[$((i-1))]}
+                echo "Retryable error (rc=$rc). Sleeping ${wait}s before attempt $((i+1))/$attempts..."
+                sleep "$wait"
+              else
+                echo "::error::All $attempts vsce publish attempts exhausted"
+                return $rc
+              fi
+            done
+          }
+
+          # vsce reads the target from the .vsix manifest (set at package
+          # time) and explicitly rejects `--target` together with
+          # `--packagePath` — quote: "Both options not supported
+          # simultaneously: 'packagePath' and 'target'." So pass only
+          # `--packagePath`. The matrix already records the target visibly
+          # in the step name and artifact name.
+          retry_publish npx --yes @vscode/vsce@^3 publish \
+            --packagePath extension-${{ matrix.target }}.vsix \
+            --azure-credential
+
+      - name: Publish to Open VSX (${{ matrix.target }})
+        if: inputs.dry_run != true
+        id: publish_ovsx
+        continue-on-error: true
+        env:
+          OVSX_PAT: ${{ secrets.OVSX_PAT }}
+        run: |
+          set -u
+          if [ -z "${OVSX_PAT:-}" ]; then
+            echo "::error::OVSX_PAT secret is not configured in the 'production' environment"
+            exit 1
+          fi
+
+          # Retry wrapper for transient registry failures. Open VSX's /publish
+          # endpoint is known to return intermittent 502s from Eclipse Foundation
+          # infra; this absorbs that class of failure without bumping the version.
+          retry_publish() {
+            local attempts=5
+            local backoff=(10 20 40 60 90)
+            local i output rc wait
+            for (( i=1; i<=attempts; i++ )); do
+              echo "::group::ovsx publish attempt $i/$attempts (${{ matrix.target }})"
+              # The if/else is load-bearing: GitHub runs `bash -e`, and a
+              # failed command substitution `output=$(cmd)` under set -e
+              # terminates the script *before* the echo below can run, so
+              # vsce/ovsx errors get swallowed silently. The if-form is
+              # explicitly handled by set -e and lets both branches set rc.
+              if output=$("$@" 2>&1); then rc=0; else rc=$?; fi
+              echo "$output"
+              echo "::endgroup::"
+
+              if [ $rc -eq 0 ]; then
+                echo "Published successfully on attempt $i"
+                return 0
+              fi
+
+              # Idempotent success: version+target already published (likely by a prior attempt).
+              if echo "$output" | grep -qiE 'already exists|already published|version.*(is )?already|extension.*version.*exists'; then
+                echo "Version+target already exists — treating as idempotent success (likely landed on a prior attempt)"
+                return 0
+              fi
+
+              # Non-retryable: auth, validation. Fail fast.
+              # NOTE: ovsx emits "Invalid access token." for bad PATs — match that phrasing.
+              if echo "$output" | grep -qiE 'invalid.*token|invalid.*access.*token|unauthorized|forbidden|401\b|403\b|is not authorized|bad request|422\b|validation (failed|error)|namespace.*not.*found|must be verified'; then
+                echo "::error::Non-retryable error detected (auth/validation) — failing fast"
+                return $rc
+              fi
+
+              # Retryable (5xx, timeout, DNS, connection reset, generic network).
+              if [ $i -lt $attempts ]; then
+                wait=${backoff[$((i-1))]}
+                echo "Retryable error (rc=$rc). Sleeping ${wait}s before attempt $((i+1))/$attempts..."
+                sleep "$wait"
+              else
+                echo "::error::All $attempts ovsx publish attempts exhausted"
+                return $rc
+              fi
+            done
+          }
+
+          retry_publish npx --yes ovsx publish \
+            --target ${{ matrix.target }} \
+            --packagePath extension-${{ matrix.target }}.vsix \
+            -p "$OVSX_PAT"
+
+      - name: Report publish results (${{ matrix.target }})
+        if: inputs.dry_run != true
+        run: |
+          VSCE_STATUS="${{ steps.publish_vsce.outcome }}"
+          OVSX_STATUS="${{ steps.publish_ovsx.outcome }}"
+          echo "Target: ${{ matrix.target }}"
+          echo "VS Code Marketplace: $VSCE_STATUS"
+          echo "Open VSX:            $OVSX_STATUS"
+          # Each publish step retries transient 5xx/timeouts up to 5x with backoff
+          # and treats "version+target already exists" as idempotent success. A
+          # step outcome of "failure" here means the final attempt failed for a
+          # non-retryable reason (auth, validation) or exhausted retries on a
+          # persistent 5xx — either way, fail this matrix entry.
+          if [ "$VSCE_STATUS" != "success" ] || [ "$OVSX_STATUS" != "success" ]; then
+            echo "::error::One or more registry publishes failed for ${{ matrix.target }} after retries (vsce=$VSCE_STATUS ovsx=$OVSX_STATUS). Check the per-attempt logs above. Rerun the job from the Actions UI to retry — do NOT bump the version; registries treat 'already exists' as idempotent."
+            exit 1
+          fi
+
+      - name: Dry-run summary (${{ matrix.target }})
+        if: inputs.dry_run == true
+        run: |
+          echo "Dry run complete for ${{ matrix.target }}. Auth chains validated:"
+          echo "   - Marketplace: OIDC -> Entra SP -> vsce verify-pat --azure-credential"
+          echo "   - Open VSX: bearer token -> /api/user"
+
+  finalize:
+    needs: [prepare, publish]
+    if: needs.prepare.outputs.published == 'false' && inputs.dry_run != true
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Configure git credentials for push
+        run: git config --global url."https://x-access-token:$GITHUB_TOKEN@github.com/".insteadOf "https://github.com/"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create git tag
+        run: |
+          TAG="vscode-extension-v${{ needs.prepare.outputs.version }}"
+          if ! git rev-parse "${TAG}" >/dev/null 2>&1; then
+            git tag "${TAG}"
+            git push origin "${TAG}"
+          else
+            echo "Tag ${TAG} already exists — skipping."
+          fi
+
+      - name: Create GitHub Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="vscode-extension-v${{ needs.prepare.outputs.version }}"
+          if gh release view "${TAG}" >/dev/null 2>&1; then
+            echo "Release ${TAG} already exists — skipping."
+            exit 0
+          fi
+          # Prefer the CHANGELOG section for this version if present; otherwise
+          # let GitHub auto-generate notes from commits.
+          CHANGELOG="CHANGELOG.md"
+          NOTES_FILE=""
+          if [ -f "$CHANGELOG" ]; then
+            VERSION="${{ needs.prepare.outputs.version }}"
+            # Extract the section between "## <version>" and the next "## " heading.
+            NOTES_FILE=$(mktemp)
+            awk -v ver="$VERSION" '
+              $0 ~ "^## " ver "( |$)" { capture = 1; next }
+              capture && /^## / { exit }
+              capture { print }
+            ' "$CHANGELOG" > "$NOTES_FILE"
+            if [ ! -s "$NOTES_FILE" ]; then
+              NOTES_FILE=""
+            fi
+          fi
+          if [ -n "$NOTES_FILE" ]; then
+            gh release create "${TAG}" --title "${TAG}" --verify-tag --latest --notes-file "$NOTES_FILE"
+          else
+            gh release create "${TAG}" --title "${TAG}" --verify-tag --latest --generate-notes
+          fi
+
+      - name: Notify Slack (published)
+        if: env.SLACK_WEBHOOK_OSS_ALERTS != ''
+        env:
+          SLACK_WEBHOOK_OSS_ALERTS: ${{ secrets.SLACK_WEBHOOK_OSS_ALERTS }}
+        uses: slackapi/slack-github-action@45a88b9581bfab2566dc881e2cd66d334e621e2c # v3.0.3
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_OSS_ALERTS }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": ":package: *copilotkit-vscode-extension v${{ needs.prepare.outputs.version }} published* (4 platform targets)\nMarketplace: https://marketplace.visualstudio.com/items?itemName=${{ needs.prepare.outputs.ext_id }}\nOpen VSX: https://open-vsx.org/extension/${{ needs.prepare.outputs.publisher }}/${{ needs.prepare.outputs.name }}\nRelease: https://github.com/${{ github.repository }}/releases/tag/vscode-extension-v${{ needs.prepare.outputs.version }}"
+            }
+
+  notify-failure:
+    needs: [prepare, package, publish, finalize]
+    # `always()` — run even when an upstream job fails. Then surface a Slack
+    # alert only if any pipeline job actually failed (skipped jobs from a
+    # version-already-published short-circuit are not failures).
+    if: |
+      always()
+      && inputs.dry_run != true
+      && (needs.prepare.result == 'failure'
+          || needs.package.result == 'failure'
+          || needs.publish.result == 'failure'
+          || needs.finalize.result == 'failure')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    environment: production
+    steps:
+      - name: Notify Slack (publish failure)
+        if: env.SLACK_WEBHOOK_OSS_ALERTS != ''
+        env:
+          SLACK_WEBHOOK_OSS_ALERTS: ${{ secrets.SLACK_WEBHOOK_OSS_ALERTS }}
+        uses: slackapi/slack-github-action@45a88b9581bfab2566dc881e2cd66d334e621e2c # v3.0.3
+        with:
+          webhook: ${{ secrets.SLACK_WEBHOOK_OSS_ALERTS }}
+          webhook-type: incoming-webhook
+          payload: |
+            {
+              "text": ":x: *copilotkit-vscode-extension v${{ needs.prepare.outputs.version }} publish failed*\nprepare=${{ needs.prepare.result }} package=${{ needs.package.result }} publish=${{ needs.publish.result }} finalize=${{ needs.finalize.result }}\n<https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}|View run>"
+            }

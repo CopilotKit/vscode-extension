@@ -1,0 +1,1625 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+    <!-- Redirect /index.html to clean URL -->
+    <script>
+      if (window.location.pathname.endsWith("/index.html")) {
+        window.history.replaceState(null, "", "/");
+      }
+    </script>
+    <title>CopilotKit for VSCode — Preview, debug, and inspect agents in your editor</title>
+    <meta
+      name="description"
+      content="The developer toolkit for CopilotKit agents. Preview generative UI, explore 28 hooks, and inspect AG-UI protocol streams — all without leaving VSCode."
+    />
+
+    <!-- Open Graph / Social -->
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content="https://vscode.copilotkit.dev/" />
+    <meta property="og:title" content="CopilotKit for VSCode — Preview, debug, and inspect agents in your editor" />
+    <meta
+      property="og:description"
+      content="Preview generative UI, explore 28 hooks, and inspect AG-UI protocol streams — all without leaving VSCode."
+    />
+    <meta property="og:image" content="https://vscode.copilotkit.dev/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="CopilotKit for VSCode — Preview, debug, and inspect agents in your editor" />
+    <meta
+      name="twitter:description"
+      content="Preview generative UI, explore 28 hooks, and inspect AG-UI protocol streams — all without leaving VSCode."
+    />
+    <meta name="twitter:image" content="https://vscode.copilotkit.dev/og-image.png" />
+
+    <link rel="icon" type="image/svg+xml" href="favicon.svg" />
+
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:ital,wght@0,300;0,400;0,500;0,600;0,700;1,400&family=Instrument+Sans:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+
+    <style>
+      /* --- Reset & Variables ----------------------------------------- */
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+
+      :root {
+        --bg-deep: #0a0a12;
+        --bg-surface: #111118;
+        --bg-card: rgba(17, 17, 30, 0.8);
+        --bg-card-hover: #1c1c28;
+        --border: #2a2a3a;
+        --border-bright: #3a3a50;
+        --text-primary: #e8e8f0;
+        --text-secondary: #8888a0;
+        --text-dim: #555570;
+        --accent: #aa66ff;
+        --accent-dim: #8844dd;
+        --accent-glow: rgba(170, 102, 255, 0.15);
+        --accent-glow-strong: rgba(170, 102, 255, 0.3);
+        --warning: #ffaa00;
+        --error: #ff4466;
+        --blue: #4488ff;
+        --purple: #aa66ff;
+        --cyan: #22d3ee;
+        --amber: #ffcc33;
+        --green: #00cc6a;
+        --orange: #ff8844;
+        --teal: #2dd4bf;
+        --font-mono: "JetBrains Mono", "SF Mono", "Fira Code", monospace;
+        --font-features-mono: "liga" 0, "calt" 0;
+        --font-sans: "Instrument Sans", -apple-system, system-ui, sans-serif;
+        --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+      }
+
+      html {
+        font-size: 16px;
+        scroll-behavior: smooth;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+
+      body {
+        font-family: var(--font-sans);
+        background: var(--bg-deep);
+        color: var(--text-primary);
+        line-height: 1.6;
+        overflow-x: hidden;
+      }
+
+      code,
+      pre,
+      kbd {
+        font-feature-settings: var(--font-features-mono);
+      }
+
+      a {
+        color: var(--accent);
+        text-decoration: none;
+      }
+      a:hover {
+        text-decoration: underline;
+      }
+
+      /* --- Noise Overlay --------------------------------------------- */
+      body::before {
+        content: "";
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='0.03'/%3E%3C/svg%3E");
+        pointer-events: none;
+        z-index: 9999;
+      }
+
+      /* --- Layout ---------------------------------------------------- */
+      .container {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 0 2rem;
+      }
+
+      /* --- Nav -------------------------------------------------------- */
+      nav {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        z-index: 100;
+        padding: 1rem 0;
+        background: rgba(10, 10, 18, 0.85);
+        backdrop-filter: blur(20px) saturate(1.4);
+        -webkit-backdrop-filter: blur(20px) saturate(1.4);
+        border-bottom: 1px solid var(--border);
+      }
+      nav .container {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+      .nav-brand {
+        display: flex;
+        flex-direction: column;
+        gap: 0;
+        font-family: var(--font-mono);
+        font-weight: 600;
+        font-size: 1rem;
+        color: var(--text-primary);
+      }
+      .nav-brand .brand-main {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+      }
+      .nav-brand .prompt {
+        color: var(--accent);
+      }
+      .nav-links {
+        display: flex;
+        align-items: center;
+        gap: 2rem;
+        list-style: none;
+      }
+      .nav-links a {
+        color: var(--text-secondary);
+        font-size: 0.875rem;
+        font-weight: 500;
+        transition: color 0.2s;
+      }
+      .nav-links a:hover {
+        color: var(--text-primary);
+        text-decoration: none;
+      }
+      .nav-links .gh-link {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.4rem 1rem;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        transition:
+          border-color 0.2s,
+          background 0.2s;
+      }
+      .nav-links .gh-link:hover {
+        border-color: var(--border-bright);
+        background: var(--bg-card);
+      }
+
+      /* --- Animations ------------------------------------------------ */
+      @keyframes fadeUp {
+        from {
+          opacity: 0;
+          transform: translateY(30px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @keyframes pulse {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0.4;
+        }
+      }
+
+      @keyframes blink {
+        0%,
+        100% {
+          opacity: 1;
+        }
+        50% {
+          opacity: 0;
+        }
+      }
+
+      .fade-in {
+        opacity: 0;
+        transform: translateY(30px);
+        transition:
+          opacity 0.8s var(--ease-out-expo),
+          transform 0.8s var(--ease-out-expo);
+      }
+      .fade-in.visible {
+        opacity: 1;
+        transform: translateY(0);
+      }
+
+      /* --- Hero ------------------------------------------------------- */
+      .hero {
+        padding: 120px 0 3rem;
+        position: relative;
+        overflow: hidden;
+      }
+      .hero::before {
+        content: "";
+        position: absolute;
+        top: -200px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 800px;
+        height: 600px;
+        background: radial-gradient(ellipse, var(--accent-glow) 0%, transparent 70%);
+        pointer-events: none;
+      }
+      .hero .container {
+        position: relative;
+        z-index: 1;
+      }
+      .hero-badge {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.35rem 1rem;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 100px;
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        color: var(--text-secondary);
+        margin-bottom: 2rem;
+        animation: fadeUp 0.8s var(--ease-out-expo) both;
+      }
+      .hero-badge .dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--accent);
+        box-shadow: 0 0 8px var(--accent);
+        animation: pulse 2s infinite;
+      }
+      .hero h1 {
+        font-family: var(--font-sans);
+        font-size: clamp(2.5rem, 6vw, 4.5rem);
+        font-weight: 700;
+        line-height: 1.08;
+        letter-spacing: -0.03em;
+        max-width: 780px;
+        animation: fadeUp 0.8s var(--ease-out-expo) 0.1s both;
+      }
+      .hero h1 .highlight {
+        color: var(--accent);
+        position: relative;
+      }
+      .hero-sub {
+        font-size: 1.2rem;
+        color: var(--text-secondary);
+        max-width: 640px;
+        margin-top: 1.5rem;
+        line-height: 1.7;
+        animation: fadeUp 0.8s var(--ease-out-expo) 0.2s both;
+      }
+
+      /* --- Install Buttons ------------------------------------------- */
+      .install-buttons {
+        display: flex;
+        gap: 1rem;
+        margin-top: 2.5rem;
+        flex-wrap: wrap;
+        animation: fadeUp 0.8s var(--ease-out-expo) 0.3s both;
+      }
+
+      /* --- Buttons --------------------------------------------------- */
+      .btn-primary {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.75rem 1.75rem;
+        background: var(--accent);
+        color: var(--bg-deep);
+        font-family: var(--font-mono);
+        font-size: 0.875rem;
+        font-weight: 600;
+        border-radius: 8px;
+        border: none;
+        cursor: pointer;
+        transition: all 0.2s;
+        text-decoration: none;
+      }
+      .btn-primary:hover {
+        background: var(--accent-dim);
+        text-decoration: none;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 20px var(--accent-glow);
+      }
+      .btn-secondary {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.75rem 1.75rem;
+        background: transparent;
+        color: var(--text-primary);
+        font-family: var(--font-mono);
+        font-size: 0.875rem;
+        font-weight: 500;
+        border-radius: 8px;
+        border: 1px solid var(--border);
+        cursor: pointer;
+        transition: all 0.2s;
+        text-decoration: none;
+      }
+      .btn-secondary:hover {
+        border-color: var(--border-bright);
+        background: var(--bg-card);
+        text-decoration: none;
+      }
+
+      /* --- Demo Panels ----------------------------------------------- */
+      .demo-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1.5rem;
+        margin-top: 3.5rem;
+        animation: fadeUp 0.8s var(--ease-out-expo) 0.4s both;
+      }
+      .demo-panel {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        overflow: hidden;
+        box-shadow:
+          0 8px 32px rgba(0, 0, 0, 0.4),
+          0 2px 8px rgba(0, 0, 0, 0.2);
+      }
+      .demo-titlebar {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.75rem 1rem;
+        background: rgba(0, 0, 0, 0.3);
+        border-bottom: 1px solid var(--border);
+      }
+      .demo-titlebar .dots {
+        display: flex;
+        gap: 6px;
+      }
+      .demo-titlebar .dots span {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+      }
+      .demo-titlebar .dots span:nth-child(1) {
+        background: #ff5f57;
+      }
+      .demo-titlebar .dots span:nth-child(2) {
+        background: #ffbd2e;
+      }
+      .demo-titlebar .dots span:nth-child(3) {
+        background: #28ca42;
+      }
+      .demo-titlebar .title {
+        font-family: var(--font-mono);
+        font-size: 0.75rem;
+        color: var(--text-dim);
+        margin-left: 0.5rem;
+      }
+      .demo-body {
+        padding: 1.25rem;
+        font-family: var(--font-mono);
+        font-size: 0.8rem;
+        line-height: 1.7;
+        overflow-x: auto;
+      }
+
+      /* --- Syntax Highlighting --------------------------------------- */
+      .syn-key {
+        color: #88aaff;
+      }
+      .syn-str {
+        color: #66ddaa;
+      }
+      .syn-num {
+        color: #ffaa66;
+      }
+      .syn-bool {
+        color: #ff88aa;
+      }
+      .syn-bracket {
+        color: var(--text-dim);
+      }
+      .syn-comment {
+        color: var(--text-dim);
+        font-style: italic;
+      }
+      .syn-fn {
+        color: #dcdcaa;
+      }
+      .syn-type {
+        color: #4ec9b0;
+      }
+      .syn-param {
+        color: #9cdcfe;
+      }
+
+      /* --- Terminal Colors ------------------------------------------- */
+      .t-green {
+        color: var(--accent);
+      }
+      .t-yellow {
+        color: var(--warning);
+      }
+      .t-red {
+        color: var(--error);
+      }
+      .t-blue {
+        color: var(--blue);
+      }
+      .t-dim {
+        color: var(--text-dim);
+      }
+      .t-purple {
+        color: var(--purple);
+      }
+      .t-orange {
+        color: var(--orange);
+      }
+      .t-teal {
+        color: var(--teal);
+      }
+
+      /* --- Terminal Demo Animation ----------------------------------- */
+      .demo-term {
+        padding: 1.25rem;
+        font-family: var(--font-mono);
+        font-size: 0.78rem;
+        line-height: 1.75;
+        height: 380px;
+        overflow: hidden;
+      }
+      .demo-term .line {
+        opacity: 0;
+        transform: translateX(-6px);
+        white-space: nowrap;
+      }
+      .demo-term .line.visible {
+        opacity: 1;
+        transform: translateX(0);
+        transition:
+          opacity 0.25s ease,
+          transform 0.25s ease;
+      }
+      .demo-term .prompt-sym {
+        color: var(--accent);
+        user-select: none;
+      }
+      .demo-term .cmd {
+        color: var(--text-primary);
+      }
+      .demo-term .info {
+        color: var(--text-dim);
+      }
+      .demo-term .ok {
+        color: var(--accent);
+      }
+      .demo-term .req {
+        color: var(--warning);
+      }
+      .demo-term .match {
+        color: var(--purple);
+      }
+      .demo-term .streamed {
+        color: var(--text-primary);
+      }
+      .demo-term .cursor {
+        display: inline-block;
+        width: 7px;
+        height: 14px;
+        background: var(--accent);
+        animation: blink 1s step-end infinite;
+        vertical-align: text-bottom;
+        margin-left: 1px;
+      }
+
+      /* --- Section: Three Features ----------------------------------- */
+      .section-features-main {
+        padding: 4.5rem 0;
+        position: relative;
+        background: linear-gradient(
+          180deg,
+          var(--bg-deep) 0%,
+          var(--bg-surface) 30%,
+          var(--bg-surface) 70%,
+          var(--bg-deep) 100%
+        );
+      }
+      .features-intro {
+        text-align: center;
+        margin-bottom: 3.5rem;
+      }
+      .features-intro .loop-label {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-family: var(--font-mono);
+        font-size: 0.8rem;
+        color: var(--accent);
+        margin-bottom: 1rem;
+      }
+      .features-intro .loop-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--accent);
+        box-shadow: 0 0 10px var(--accent);
+        animation: pulse 1.5s infinite;
+        display: inline-block;
+        vertical-align: middle;
+      }
+      .features-intro h2 {
+        font-size: clamp(1.8rem, 4vw, 2.8rem);
+        font-weight: 700;
+        letter-spacing: -0.02em;
+      }
+
+      .feature-section {
+        margin-bottom: 4rem;
+      }
+      .feature-section:last-child {
+        margin-bottom: 0;
+      }
+      .feature-header {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        margin-bottom: 1.5rem;
+      }
+      .feature-number {
+        flex-shrink: 0;
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-family: var(--font-mono);
+        font-size: 0.85rem;
+        font-weight: 600;
+        color: var(--accent);
+      }
+      .feature-header h3 {
+        font-size: 1.4rem;
+        font-weight: 700;
+        letter-spacing: -0.01em;
+      }
+      .feature-desc {
+        color: var(--text-secondary);
+        font-size: 1rem;
+        line-height: 1.7;
+        margin-bottom: 1.5rem;
+        margin-left: 3.25rem;
+      }
+      .feature-desc ul {
+        margin: 0.4rem 0 0;
+        padding-left: 1.25rem;
+        list-style: disc;
+      }
+      .feature-desc li {
+        margin-bottom: 0.15rem;
+      }
+      .feature-demo-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 1.5rem;
+      }
+      .feature-demo-grid.single {
+        grid-template-columns: 1fr;
+        max-width: 700px;
+      }
+
+      /* --- Section: Value Props -------------------------------------- */
+      .section-value {
+        padding: 4.5rem 0;
+        position: relative;
+        overflow: hidden;
+      }
+      .section-value::before {
+        content: "";
+        position: absolute;
+        top: -100px;
+        left: 50%;
+        transform: translateX(-50%);
+        width: 1000px;
+        height: 800px;
+        background: radial-gradient(
+          ellipse,
+          rgba(170, 102, 255, 0.08) 0%,
+          rgba(68, 136, 255, 0.05) 40%,
+          transparent 70%
+        );
+        pointer-events: none;
+      }
+      .section-value .container {
+        position: relative;
+        z-index: 1;
+      }
+      .section-value h2 {
+        font-size: clamp(1.8rem, 4vw, 2.8rem);
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        text-align: center;
+        margin-bottom: 3.5rem;
+      }
+      .value-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 1.5rem;
+      }
+      .value-card {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 2rem;
+        box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+        transition: all 0.3s var(--ease-out-expo);
+      }
+      .value-card:hover {
+        transform: translateY(-4px);
+        border-color: var(--border-bright);
+        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+      }
+      .value-card .value-icon {
+        font-size: 1.75rem;
+        margin-bottom: 1rem;
+      }
+      .value-card h3 {
+        font-size: 1.05rem;
+        font-weight: 600;
+        margin-bottom: 0.5rem;
+      }
+      .value-card p {
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+        line-height: 1.6;
+      }
+
+      /* --- Section: Comparison --------------------------------------- */
+      .section-comparison {
+        padding: 4.5rem 0;
+        background: linear-gradient(
+          180deg,
+          var(--bg-deep) 0%,
+          var(--bg-surface) 50%,
+          var(--bg-deep) 100%
+        );
+      }
+      .section-comparison h2 {
+        font-size: clamp(1.8rem, 4vw, 2.8rem);
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        text-align: center;
+        margin-bottom: 1rem;
+      }
+      .comparison-sub {
+        text-align: center;
+        color: var(--text-secondary);
+        font-size: 1.05rem;
+        max-width: 640px;
+        margin: 0 auto 3rem;
+        line-height: 1.7;
+      }
+      .comparison-wrap {
+        -webkit-overflow-scrolling: touch;
+        overflow-x: auto;
+      }
+      .comparison-table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 0;
+        font-size: 0.85rem;
+      }
+      .comparison-table thead th {
+        position: sticky;
+        top: 57px;
+        z-index: 10;
+        padding: 1rem;
+        background: var(--bg-surface);
+        border-bottom: 1px solid var(--border);
+        border-right: 1px solid var(--border);
+        font-weight: 600;
+        text-align: center;
+        font-family: var(--font-mono);
+        font-size: 0.8rem;
+        white-space: nowrap;
+      }
+      .comparison-table thead th:first-child {
+        text-align: left;
+      }
+      .comparison-table thead th.col-ours {
+        background: var(--accent);
+        color: var(--bg-deep);
+        border-left: 2px solid var(--accent);
+        border-right: 2px solid var(--accent);
+      }
+      .comparison-table tbody td {
+        padding: 0.75rem 1rem;
+        border: 1px solid var(--border);
+        text-align: center;
+        color: var(--text-secondary);
+      }
+      .comparison-table tbody td:first-child {
+        text-align: left;
+        color: var(--text-primary);
+        font-weight: 500;
+      }
+      .comparison-table tbody td.col-ours {
+        border-left: 2px solid var(--accent);
+        border-right: 2px solid var(--accent);
+        background: rgba(170, 102, 255, 0.03);
+      }
+      .comparison-table tbody tr:hover td {
+        background: var(--bg-card-hover);
+      }
+      .comparison-table tbody tr:hover td.col-ours {
+        background: rgba(170, 102, 255, 0.06);
+      }
+      .yes {
+        color: var(--accent);
+        font-weight: 600;
+      }
+      .no {
+        color: var(--text-dim);
+      }
+      .partial {
+        color: var(--warning);
+      }
+
+      /* --- Section: CTA ---------------------------------------------- */
+      .section-cta {
+        padding: 5rem 0 3rem;
+        text-align: center;
+      }
+      .section-cta h2 {
+        font-size: clamp(1.8rem, 4vw, 2.8rem);
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        margin-bottom: 1rem;
+      }
+      .section-cta .cta-sub {
+        color: var(--text-secondary);
+        font-size: 1.05rem;
+        max-width: 500px;
+        margin: 0 auto 2rem;
+        line-height: 1.7;
+      }
+      .cta-buttons {
+        display: flex;
+        gap: 1rem;
+        justify-content: center;
+        flex-wrap: wrap;
+      }
+
+      /* --- Footer ---------------------------------------------------- */
+      footer {
+        padding: 3rem 0;
+        border-top: 1px solid var(--border);
+        text-align: center;
+      }
+      .footer-brand {
+        font-family: var(--font-mono);
+        font-size: 0.85rem;
+        color: var(--text-dim);
+        margin-bottom: 1rem;
+      }
+      .footer-brand .prompt {
+        color: var(--accent);
+      }
+      .footer-links {
+        display: flex;
+        gap: 2rem;
+        justify-content: center;
+        list-style: none;
+      }
+      .footer-links a {
+        color: var(--text-secondary);
+        font-size: 0.85rem;
+        font-weight: 500;
+        transition: color 0.2s;
+      }
+      .footer-links a:hover {
+        color: var(--text-primary);
+        text-decoration: none;
+      }
+
+      /* --- Cross-Nav Footer -------------------------------------------- */
+      .cross-nav-footer {
+        padding: 2rem 0;
+        border-top: 1px solid var(--border);
+      }
+      .cross-nav-toolbar {
+        max-width: 1120px;
+        margin: 0 auto;
+        padding: 0 2rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        flex-wrap: wrap;
+      }
+      .cn-label {
+        font-family: "JetBrains Mono", "SF Mono", "Fira Code", monospace;
+        font-size: 0.8rem;
+        color: var(--text-dim);
+        margin-right: 0.25rem;
+        white-space: nowrap;
+      }
+      .cn-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        padding: 0.35rem 0.85rem;
+        border: 1px solid var(--border);
+        border-radius: 100px;
+        font-family: "JetBrains Mono", "SF Mono", "Fira Code", monospace;
+        font-size: 0.75rem;
+        font-weight: 500;
+        color: var(--text-secondary);
+        text-decoration: none;
+        transition: border-color 0.2s, background 0.2s, color 0.2s;
+        white-space: nowrap;
+      }
+      .cn-pill:hover {
+        border-color: #3a3a50;
+        color: var(--text-primary);
+        text-decoration: none;
+        background: rgba(255, 255, 255, 0.03);
+      }
+      .cn-pill.active {
+        border-color: var(--accent);
+        background: var(--accent-glow);
+        color: var(--text-primary);
+        cursor: default;
+        pointer-events: none;
+      }
+      .cn-dot {
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        flex-shrink: 0;
+      }
+
+      /* --- Mobile ----------------------------------------------------- */
+      @media (max-width: 768px) {
+        .nav-links {
+          gap: 1rem;
+        }
+        .nav-links .nav-hide-mobile {
+          display: none;
+        }
+        .demo-grid,
+        .feature-demo-grid {
+          grid-template-columns: 1fr;
+        }
+        .value-grid {
+          grid-template-columns: 1fr;
+        }
+        .comparison-table {
+          font-size: 0.78rem;
+        }
+        .install-buttons {
+          flex-direction: column;
+          align-items: flex-start;
+        }
+        .feature-desc {
+          margin-left: 0;
+        }
+      }
+
+      @media (max-width: 640px) {
+        .cross-nav-toolbar {
+          gap: 0.4rem;
+        }
+        .cn-pill {
+          font-size: 0.7rem;
+          padding: 0.3rem 0.7rem;
+        }
+      }
+
+      @media (max-width: 480px) {
+        .hero {
+          padding: 8rem 0 4rem;
+        }
+        .hero h1 {
+          font-size: 2rem;
+        }
+        .cn-label {
+          display: none;
+        }
+      }
+    </style>
+  <script src="/pixels.js" defer></script>
+  </head>
+
+  <body>
+    <!-- --- Nav ----------------------------------------------------- -->
+    <nav>
+      <div class="container">
+        <div class="nav-brand">
+          <div class="brand-main"><span class="prompt">&lt;/&gt;</span> CopilotKit VSCode</div>
+        </div>
+        <ul class="nav-links">
+          <li><a href="#features" class="nav-hide-mobile">Features</a></li>
+          <li><a href="#value" class="nav-hide-mobile">Why</a></li>
+          <li><a href="#comparison" class="nav-hide-mobile">Comparison</a></li>
+          <li>
+            <a
+              href="https://github.com/CopilotKit/vscode-extension"
+              class="gh-link"
+              target="_blank"
+              rel="noopener"
+            >
+              <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+                <path
+                  d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"
+                />
+              </svg>
+              GitHub
+            </a>
+          </li>
+        </ul>
+      </div>
+    </nav>
+
+    <!-- --- Section 1: Hero ----------------------------------------- -->
+    <section class="hero">
+      <div class="container">
+        <div class="hero-badge">
+          <span class="dot"></span>
+          v0.1.0 &mdash; Free &mdash; MIT License
+        </div>
+
+        <h1>
+          Preview. Debug.
+          <span class="highlight">Inspect.</span>
+          Without leaving your editor.
+        </h1>
+
+        <p class="hero-sub">
+          The developer toolkit for CopilotKit agents &mdash; preview generative UI, explore 28 hooks,
+          and inspect AG-UI protocol streams, all from the VSCode activity bar.
+        </p>
+
+        <div class="install-buttons">
+          <a
+            href="https://marketplace.visualstudio.com/items?itemName=copilotkit.copilotkit-vscode-extension"
+            class="btn-primary"
+            target="_blank"
+            rel="noopener"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.29 2.36L6.5.07l8.21 3.73v8.4L6.5 15.93l-5.21-2.57L6.5 10.5V5.5L1.29 8.36V2.36z"/></svg>
+            Install from VSCode Marketplace
+          </a>
+          <a
+            href="https://open-vsx.org/extension/copilotkit/copilotkit-vscode-extension"
+            class="btn-secondary"
+            target="_blank"
+            rel="noopener"
+          >
+            Install from Open VSX
+          </a>
+        </div>
+
+        <div class="demo-grid">
+          <!-- Left: Hook Explorer demo -->
+          <div class="demo-panel">
+            <div class="demo-titlebar">
+              <div class="dots"><span></span><span></span><span></span></div>
+              <span class="title">Hook Explorer</span>
+            </div>
+            <div class="demo-body">
+              <pre><span class="syn-comment">// Scanning workspace for CopilotKit hooks...</span>
+
+<span class="t-purple">Render Hooks</span> <span class="t-dim">(16 found)</span>
+  <span class="t-green">&#10003;</span> <span class="syn-fn">useCopilotAction</span>       <span class="t-dim">src/agent.tsx:12</span>
+  <span class="t-green">&#10003;</span> <span class="syn-fn">useCopilotAction</span>       <span class="t-dim">src/tools.tsx:8</span>
+  <span class="t-green">&#10003;</span> <span class="syn-fn">useCoAgentAction</span>       <span class="t-dim">src/flow.tsx:24</span>
+  <span class="t-green">&#10003;</span> <span class="syn-fn">useCopilotChatSuggestions</span> <span class="t-dim">src/chat.tsx:6</span>
+
+<span class="t-blue">Data Hooks</span> <span class="t-dim">(12 found)</span>
+  <span class="t-green">&#10003;</span> <span class="syn-fn">useCopilotReadable</span>     <span class="t-dim">src/state.tsx:15</span>
+  <span class="t-green">&#10003;</span> <span class="syn-fn">useCoAgentStateRender</span>  <span class="t-dim">src/flow.tsx:31</span>
+  <span class="t-green">&#10003;</span> <span class="syn-fn">useCopilotChat</span>         <span class="t-dim">src/chat.tsx:19</span>
+
+<span class="t-dim">CodeLens: 28 "Preview Component" lenses active</span></pre>
+            </div>
+          </div>
+
+          <!-- Right: terminal demo animation -->
+          <div class="demo-panel">
+            <div class="demo-titlebar">
+              <div class="dots"><span></span><span></span><span></span></div>
+              <span class="title">AG-UI Inspector</span>
+            </div>
+            <div id="demo-term" class="demo-term"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- --- Section 2: Three Features ------------------------------- -->
+    <section class="section-features-main" id="features">
+      <div class="container">
+        <div class="features-intro fade-in">
+          <div class="loop-label">
+            <span class="loop-dot"></span>
+            Three Panels, One Activity Bar
+          </div>
+          <h2>Everything you need to build CopilotKit agents</h2>
+        </div>
+
+        <!-- Feature 1: A2UI Catalog Preview -->
+        <div class="feature-section fade-in">
+          <div class="feature-header">
+            <div class="feature-number">1</div>
+            <h3>A2UI Catalog Preview</h3>
+          </div>
+          <div class="feature-desc">
+            Live-preview A2UI catalog components from your workspace with hot-reload.
+            <ul>
+              <li>Inline validation: missing fields, unknown types, typo suggestions</li>
+              <li>Catches duplicate IDs and protocol ordering violations</li>
+            </ul>
+          </div>
+          <div class="feature-demo-grid">
+            <div class="demo-panel">
+              <div class="demo-titlebar">
+                <div class="dots"><span></span><span></span><span></span></div>
+                <span class="title">catalog-preview.tsx</span>
+              </div>
+              <div class="demo-body">
+                <pre><span class="syn-comment">// Right-click any .tsx file to preview</span>
+
+<span class="syn-key">import</span> { <span class="syn-type">WeatherCard</span> } <span class="syn-key">from</span> <span class="syn-str">"./components"</span>;
+
+<span class="syn-comment">// Fixture: weather-sunny.json</span>
+<span class="syn-bracket">{</span>
+  <span class="syn-key">"temperature"</span>: <span class="syn-num">72</span>,
+  <span class="syn-key">"condition"</span>: <span class="syn-str">"sunny"</span>,
+  <span class="syn-key">"location"</span>: <span class="syn-str">"San Francisco"</span>
+<span class="syn-bracket">}</span>
+
+<span class="t-green">&#10003;</span> <span class="t-dim">Fixture valid &mdash; all fields match schema</span>
+<span class="t-green">&#10003;</span> <span class="t-dim">Hot-reload active &mdash; watching for changes</span></pre>
+              </div>
+            </div>
+            <div class="demo-panel">
+              <div class="demo-titlebar">
+                <div class="dots"><span></span><span></span><span></span></div>
+                <span class="title">fixture-diagnostics</span>
+              </div>
+              <div class="demo-body">
+                <pre><span class="syn-comment">// Inline validation catches issues instantly</span>
+
+<span class="t-red">&#9679;</span> <span class="t-red">Error</span> <span class="t-dim">line 3:</span> Unknown field <span class="syn-str">"temprature"</span>
+  <span class="t-yellow">&#8627; Did you mean</span> <span class="syn-str">"temperature"</span><span class="t-yellow">?</span>
+
+<span class="t-red">&#9679;</span> <span class="t-red">Error</span> <span class="t-dim">line 7:</span> Missing required field
+  <span class="t-dim">Expected:</span> <span class="syn-key">"unit"</span>: <span class="syn-str">"fahrenheit"</span> | <span class="syn-str">"celsius"</span>
+
+<span class="t-yellow">&#9679;</span> <span class="t-yellow">Warning</span> <span class="t-dim">line 12:</span> Duplicate ID
+  <span class="t-dim">"card-main" already used at line 4</span>
+
+<span class="t-dim">3 diagnostics &mdash; 2 errors, 1 warning</span></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Feature 2: Hook Explorer -->
+        <div class="feature-section fade-in">
+          <div class="feature-header">
+            <div class="feature-number">2</div>
+            <h3>Hook Explorer (Generative UI)</h3>
+          </div>
+          <div class="feature-desc">
+            Finds all 28 CopilotKit hooks in your workspace (16 render, 12 data).
+            <ul>
+              <li>Preview generative UI in both in-progress and completed states &mdash; no agent loop needed</li>
+              <li>Clickable &ldquo;Preview Component&rdquo; CodeLens above every render-hook call-site</li>
+            </ul>
+          </div>
+          <div class="feature-demo-grid">
+            <div class="demo-panel">
+              <div class="demo-titlebar">
+                <div class="dots"><span></span><span></span><span></span></div>
+                <span class="title">src/tools.tsx &mdash; CodeLens active</span>
+              </div>
+              <div class="demo-body">
+                <pre><span class="t-dim">  7 |</span>
+<span class="t-purple">     Preview Component  |  View Fixtures</span>
+<span class="t-dim">  8 |</span> <span class="syn-fn">useCopilotAction</span>({
+<span class="t-dim">  9 |</span>   <span class="syn-param">name</span>: <span class="syn-str">"get_weather"</span>,
+<span class="t-dim"> 10 |</span>   <span class="syn-param">description</span>: <span class="syn-str">"Fetch current weather"</span>,
+<span class="t-dim"> 11 |</span>   <span class="syn-param">render</span>: (<span class="syn-param">props</span>) =&gt; {
+<span class="t-dim"> 12 |</span>     <span class="syn-key">return</span> &lt;<span class="syn-type">WeatherCard</span> {...<span class="syn-param">props</span>} /&gt;
+<span class="t-dim"> 13 |</span>   }
+<span class="t-dim"> 14 |</span> });
+<span class="t-dim"> 15 |</span>
+<span class="t-purple">     Preview Component</span>
+<span class="t-dim"> 16 |</span> <span class="syn-fn">useCopilotAction</span>({
+<span class="t-dim"> 17 |</span>   <span class="syn-param">name</span>: <span class="syn-str">"search_docs"</span>,</pre>
+              </div>
+            </div>
+            <div class="demo-panel">
+              <div class="demo-titlebar">
+                <div class="dots"><span></span><span></span><span></span></div>
+                <span class="title">preview &mdash; get_weather (in-progress)</span>
+              </div>
+              <div class="demo-body">
+                <pre><span class="syn-comment">// Rendered without running the agent loop</span>
+
+<span class="t-dim">&#9484;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9488;</span>
+<span class="t-dim">&#9474;</span> <span class="syn-type">WeatherCard</span>                   <span class="t-dim">&#9474;</span>
+<span class="t-dim">&#9474;</span>                               <span class="t-dim">&#9474;</span>
+<span class="t-dim">&#9474;</span>  <span class="t-yellow">&#9737;</span>  <span class="t-dim">Loading weather data...</span>   <span class="t-dim">&#9474;</span>
+<span class="t-dim">&#9474;</span>     <span class="t-dim">&#9608;&#9608;&#9608;&#9608;&#9608;&#9608;&#9608;&#9608;&#9608;&#9608;&#9608;&#9608;&#9608;&#9608;&#9608;&#9608;</span>          <span class="t-dim">&#9474;</span>
+<span class="t-dim">&#9474;</span>     <span class="t-dim">&#9608;&#9608;&#9608;&#9608;&#9608;&#9608;&#9608;&#9608;</span>                  <span class="t-dim">&#9474;</span>
+<span class="t-dim">&#9474;</span>                               <span class="t-dim">&#9474;</span>
+<span class="t-dim">&#9492;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9472;&#9496;</span>
+
+<span class="t-dim">State:</span> <span class="t-yellow">in-progress</span>
+<span class="t-dim">Props: { location: "San Francisco" }</span></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Feature 3: AG-UI Inspector -->
+        <div class="feature-section fade-in">
+          <div class="feature-header">
+            <div class="feature-number">3</div>
+            <h3>AG-UI Inspector</h3>
+          </div>
+          <div class="feature-desc">
+            Taps the local runtime's <code>/cpk-debug-events</code> SSE endpoint for any AG-UI agent stream.
+            <ul>
+              <li>Color-coded event timeline with filtering by type, agent, run, or free-text</li>
+              <li>Collapsible JSON tree for payload drill-down</li>
+              <li>Auto-reconnect with backoff; sidebar or full editor panel</li>
+            </ul>
+          </div>
+          <div class="feature-demo-grid">
+            <div class="demo-panel">
+              <div class="demo-titlebar">
+                <div class="dots"><span></span><span></span><span></span></div>
+                <span class="title">AG-UI Inspector &mdash; event timeline</span>
+              </div>
+              <div class="demo-body">
+                <pre><span class="t-dim">Connected to</span> <span class="syn-str">localhost:4000/cpk-debug-events</span>
+
+<span class="t-dim">12:04:01.123</span> <span class="t-purple">&#9679; RUN_STARTED</span>        <span class="t-dim">agent-1 run-a8f3</span>
+<span class="t-dim">12:04:01.456</span> <span class="t-blue">&#9679; TEXT_MESSAGE_START</span> <span class="t-dim">agent-1 run-a8f3</span>
+<span class="t-dim">12:04:01.789</span> <span class="t-blue">&#9679; TEXT_MESSAGE_CONTENT</span> <span class="t-dim">"I'll check the..."</span>
+<span class="t-dim">12:04:02.012</span> <span class="t-orange">&#9679; TOOL_CALL_START</span>    <span class="t-dim">get_weather</span>
+<span class="t-dim">12:04:02.345</span> <span class="t-orange">&#9679; TOOL_CALL_ARGS</span>     <span class="t-dim">{"location":"SF"}</span>
+<span class="t-dim">12:04:03.678</span> <span class="t-orange">&#9679; TOOL_CALL_END</span>      <span class="t-dim">get_weather</span>
+<span class="t-dim">12:04:03.901</span> <span class="t-teal">&#9679; STATE_DELTA</span>        <span class="t-dim">+weather_data</span>
+<span class="t-dim">12:04:04.123</span> <span class="t-green">&#9679; REASONING</span>          <span class="t-dim">"Formatting result"</span>
+<span class="t-dim">12:04:04.456</span> <span class="t-purple">&#9679; RUN_FINISHED</span>       <span class="t-dim">agent-1 run-a8f3</span></pre>
+              </div>
+            </div>
+            <div class="demo-panel">
+              <div class="demo-titlebar">
+                <div class="dots"><span></span><span></span><span></span></div>
+                <span class="title">payload drill-down</span>
+              </div>
+              <div class="demo-body">
+                <pre><span class="t-orange">&#9679; TOOL_CALL_ARGS</span> <span class="t-dim">12:04:02.345</span>
+
+<span class="syn-bracket">&#9660;</span> <span class="syn-key">"arguments"</span>: <span class="syn-bracket">{</span>
+    <span class="syn-key">"location"</span>: <span class="syn-str">"San Francisco"</span>,
+    <span class="syn-key">"unit"</span>: <span class="syn-str">"fahrenheit"</span>
+  <span class="syn-bracket">}</span>
+<span class="syn-bracket">&#9660;</span> <span class="syn-key">"metadata"</span>: <span class="syn-bracket">{</span>
+    <span class="syn-key">"tool_call_id"</span>: <span class="syn-str">"tc_9x8f2a"</span>,
+    <span class="syn-key">"agent_id"</span>: <span class="syn-str">"agent-1"</span>,
+    <span class="syn-key">"run_id"</span>: <span class="syn-str">"run-a8f3"</span>
+  <span class="syn-bracket">}</span>
+<span class="syn-bracket">&#9654;</span> <span class="syn-key">"timing"</span>: <span class="syn-bracket">{...}</span> <span class="t-dim">3 fields</span>
+
+<span class="t-dim">Filter:</span> <span class="syn-str">event:TOOL_CALL* agent:agent-1</span></pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- --- Section 3: Value Props ---------------------------------- -->
+    <section class="section-value" id="value">
+      <div class="container">
+        <h2 class="fade-in">Why use CopilotKit for VSCode</h2>
+
+        <div class="value-grid">
+          <div class="value-card fade-in">
+            <div class="value-icon">&#9889;</div>
+            <h3>Skip the Agent Loop</h3>
+            <p>
+              Iterate on generative UI without running the full agent loop. Preview render hooks
+              instantly with fixture data &mdash; faster feedback, less waiting.
+            </p>
+          </div>
+
+          <div class="value-card fade-in" style="transition-delay: 0.08s">
+            <div class="value-icon">&#128269;</div>
+            <h3>Real-Time Agent Debugging</h3>
+            <p>
+              See every AG-UI protocol event as it streams. Color-coded timeline, payload drill-down,
+              and filtering by agent, run, or event type.
+            </p>
+          </div>
+
+          <div class="value-card fade-in" style="transition-delay: 0.16s">
+            <div class="value-icon">&#9888;</div>
+            <h3>Inline Diagnostics</h3>
+            <p>
+              Fixture validation with schema-aware checks, Levenshtein typo suggestions, duplicate
+              ID detection, and protocol ordering violations &mdash; all inline.
+            </p>
+          </div>
+
+          <div class="value-card fade-in" style="transition-delay: 0.24s">
+            <div class="value-icon">&#128187;</div>
+            <h3>Zero Context Switch</h3>
+            <p>
+              All three panels live in the VSCode activity bar. Preview, explore, and inspect
+              without leaving your editor or switching windows.
+            </p>
+          </div>
+
+          <div class="value-card fade-in" style="transition-delay: 0.32s">
+            <div class="value-icon">&#128260;</div>
+            <h3>V1 + V2 Coverage</h3>
+            <p>
+              Supports all 28 CopilotKit hooks across both V1 and V2 APIs. 16 render hooks, 12
+              data hooks, automatically discovered via fast AST scanning.
+            </p>
+          </div>
+
+          <div class="value-card fade-in" style="transition-delay: 0.4s">
+            <div class="value-icon">&#128065;</div>
+            <h3>CodeLens Integration</h3>
+            <p>
+              Clickable "Preview Component" lens appears above every render-hook call-site. One
+              click to see the generative UI without any extra setup.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- --- Section 4: Comparison ----------------------------------- -->
+    <section class="section-comparison" id="comparison">
+      <div class="container">
+        <h2 class="fade-in">How it compares</h2>
+        <p class="comparison-sub fade-in">
+          The only VSCode extension purpose-built for previewing generative UI
+          and inspecting AG-UI protocol streams.
+        </p>
+
+        <div class="comparison-wrap fade-in" style="transition-delay: 0.1s">
+          <table class="comparison-table">
+            <thead>
+              <tr>
+                <th>Capability</th>
+                <th class="col-ours">CopilotKit Extension</th>
+                <th>Storybook MCP</th>
+                <th>MS Foundry Toolkit</th>
+                <th>Vercel AI SDK DevTools</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>Generative UI preview</td>
+                <td class="col-ours"><span class="yes">Built-in &#10003;</span></td>
+                <td><span class="partial">Via MCP Apps</span></td>
+                <td><span class="no">&#10007;</span></td>
+                <td><span class="no">&#10007;</span></td>
+              </tr>
+              <tr>
+                <td>Agent protocol inspector</td>
+                <td class="col-ours"><span class="yes">AG-UI native &#10003;</span></td>
+                <td><span class="no">&#10007;</span></td>
+                <td><span class="partial">Agent Inspector</span></td>
+                <td><span class="no">&#10007;</span></td>
+              </tr>
+              <tr>
+                <td>Component catalog</td>
+                <td class="col-ours"><span class="yes">A2UI built-in &#10003;</span></td>
+                <td><span class="partial">Design system</span></td>
+                <td><span class="no">&#10007;</span></td>
+                <td><span class="no">&#10007;</span></td>
+              </tr>
+              <tr>
+                <td>Agent workflow debugging</td>
+                <td class="col-ours"><span class="yes">Event streaming &#10003;</span></td>
+                <td><span class="no">&#10007;</span></td>
+                <td><span class="yes">Breakpoints + viz &#10003;</span></td>
+                <td><span class="partial">LLM call tracing</span></td>
+              </tr>
+              <tr>
+                <td>Framework hook discovery</td>
+                <td class="col-ours"><span class="yes">28 hooks + CodeLens &#10003;</span></td>
+                <td><span class="no">&#10007;</span></td>
+                <td><span class="no">&#10007;</span></td>
+                <td><span class="no">&#10007;</span></td>
+              </tr>
+              <tr>
+                <td>Fixture validation</td>
+                <td class="col-ours"><span class="yes">Built-in &#10003;</span></td>
+                <td><span class="no">&#10007;</span></td>
+                <td><span class="no">&#10007;</span></td>
+                <td><span class="no">&#10007;</span></td>
+              </tr>
+              <tr>
+                <td>Multi-model catalog</td>
+                <td class="col-ours"><span class="no">&#10007;</span></td>
+                <td><span class="no">&#10007;</span></td>
+                <td><span class="yes">100+ models &#10003;</span></td>
+                <td><span class="no">&#10007;</span></td>
+              </tr>
+              <tr>
+                <td>Free + Open Source</td>
+                <td class="col-ours"><span class="yes">MIT &#10003;</span></td>
+                <td><span class="yes">MIT &#10003;</span></td>
+                <td><span class="partial">Free (MS account)</span></td>
+                <td><span class="yes">MIT &#10003;</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- --- Section 5: CTA ------------------------------------------ -->
+    <section class="section-cta">
+      <div class="container">
+        <h2 class="fade-in">Get started in seconds</h2>
+        <p class="cta-sub fade-in">
+          Install from the marketplace, open a CopilotKit project, and start previewing.
+        </p>
+        <div class="cta-buttons fade-in" style="transition-delay: 0.1s">
+          <a
+            href="https://marketplace.visualstudio.com/items?itemName=copilotkit.copilotkit-vscode-extension"
+            class="btn-primary"
+            target="_blank"
+            rel="noopener"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M1.29 2.36L6.5.07l8.21 3.73v8.4L6.5 15.93l-5.21-2.57L6.5 10.5V5.5L1.29 8.36V2.36z"/></svg>
+            VSCode Marketplace
+          </a>
+          <a
+            href="https://open-vsx.org/extension/copilotkit/copilotkit-vscode-extension"
+            class="btn-secondary"
+            target="_blank"
+            rel="noopener"
+          >
+            Open VSX Registry
+          </a>
+          <a
+            href="https://github.com/CopilotKit/vscode-extension"
+            class="btn-secondary"
+            target="_blank"
+            rel="noopener"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
+              <path
+                d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"
+              />
+            </svg>
+            View Source
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <!-- Cross-navigation toolbar -->
+    <div class="cross-nav-footer">
+      <div class="cross-nav-toolbar">
+        <span class="cn-label">copilotkit.dev /</span>
+        <a class="cn-pill active" href="https://vscode.copilotkit.dev">
+          <span class="cn-dot" style="background:#aa66ff"></span>vscode
+        </a>
+        <a class="cn-pill" href="https://aimock.copilotkit.dev">
+          <span class="cn-dot" style="background:#00ff88"></span>aimock
+        </a>
+        <a class="cn-pill" href="https://oversight.copilotkit.dev">
+          <span class="cn-dot" style="background:#ff6688"></span>oversight
+        </a>
+        <a class="cn-pill" href="https://pathfinder.copilotkit.dev">
+          <span class="cn-dot" style="background:#00ccff"></span>pathfinder
+        </a>
+        <a class="cn-pill" href="https://outpost.copilotkit.dev">
+          <span class="cn-dot" style="background:#f97316"></span>outpost
+        </a>
+      </div>
+    </div>
+
+    <!-- --- Footer -------------------------------------------------- -->
+    <footer>
+      <div class="container">
+        <div class="footer-brand">
+          <span class="prompt">&lt;/&gt;</span> CopilotKit VSCode Extension &middot; v0.1.0 &middot; MIT License
+        </div>
+        <ul class="footer-links">
+          <li>
+            <a href="https://docs.copilotkit.ai" target="_blank" rel="noopener">CopilotKit Docs</a>
+          </li>
+          <li>
+            <a href="https://github.com/CopilotKit/vscode-extension" target="_blank" rel="noopener">GitHub</a>
+          </li>
+          <li>
+            <a href="https://copilotkit.ai" target="_blank" rel="noopener">copilotkit.ai</a>
+          </li>
+        </ul>
+      </div>
+    </footer>
+
+    <!-- --- Scripts -------------------------------------------------- -->
+    <script>
+      // Scroll-triggered fade-in via IntersectionObserver
+      (function () {
+        var observer = new IntersectionObserver(
+          function (entries) {
+            entries.forEach(function (entry) {
+              if (entry.isIntersecting) {
+                entry.target.classList.add("visible");
+                observer.unobserve(entry.target);
+              }
+            });
+          },
+          { threshold: 0.1, rootMargin: "0px 0px -40px 0px" },
+        );
+
+        document.querySelectorAll(".fade-in").forEach(function (el) {
+          observer.observe(el);
+        });
+      })();
+
+      // -- Terminal demo animation (AG-UI Inspector) --------------------
+      var termSteps = [
+        {
+          type: "line",
+          html: '<span class="info">Connecting to</span> <span class="ok">localhost:4000/cpk-debug-events</span>',
+          delay: 600,
+        },
+        {
+          type: "line",
+          html: '<span class="ok">&#10003; Connected</span> <span class="info">&mdash; streaming events</span>',
+          delay: 500,
+        },
+        { type: "line", html: "", delay: 400 },
+        {
+          type: "line",
+          html: '<span class="t-dim">12:04:01.123</span> <span class="t-purple">&#9679; RUN_STARTED</span>        <span class="t-dim">agent-1</span>',
+          delay: 300,
+        },
+        {
+          type: "line",
+          html: '<span class="t-dim">12:04:01.456</span> <span class="t-blue">&#9679; TEXT_MESSAGE</span>       <span class="streamed">"I\'ll check the w..."</span>',
+          delay: 400,
+        },
+        {
+          type: "line",
+          html: '<span class="t-dim">12:04:02.012</span> <span class="t-orange">&#9679; TOOL_CALL_START</span>   <span class="req">get_weather</span>',
+          delay: 500,
+        },
+        {
+          type: "line",
+          html: '<span class="t-dim">12:04:02.345</span> <span class="t-orange">&#9679; TOOL_CALL_ARGS</span>    <span class="t-dim">{"location":"SF"}</span>',
+          delay: 400,
+        },
+        {
+          type: "line",
+          html: '<span class="t-dim">12:04:03.678</span> <span class="t-orange">&#9679; TOOL_CALL_END</span>     <span class="ok">&#10003;</span> <span class="t-dim">1.33s</span>',
+          delay: 600,
+        },
+        {
+          type: "line",
+          html: '<span class="t-dim">12:04:03.901</span> <span class="t-teal">&#9679; STATE_DELTA</span>        <span class="match">+weather_data</span>',
+          delay: 300,
+        },
+        {
+          type: "line",
+          html: '<span class="t-dim">12:04:04.123</span> <span class="t-green">&#9679; REASONING</span>          <span class="t-dim">"Formatting the..."</span>',
+          delay: 400,
+        },
+        {
+          type: "line",
+          html: '<span class="t-dim">12:04:04.456</span> <span class="t-blue">&#9679; TEXT_MESSAGE</span>       <span class="streamed">"The weather in SF..."</span>',
+          delay: 400,
+        },
+        {
+          type: "line",
+          html: '<span class="t-dim">12:04:04.789</span> <span class="t-purple">&#9679; RUN_FINISHED</span>       <span class="ok">&#10003;</span> <span class="t-dim">3.67s</span>',
+          delay: 500,
+        },
+        { type: "line", html: "", delay: 400 },
+        {
+          type: "line",
+          html: '<span class="info">12 events</span> <span class="t-dim">&mdash;</span> <span class="t-purple">2 lifecycle</span> <span class="t-blue">2 text</span> <span class="t-orange">3 tool</span> <span class="t-teal">1 state</span> <span class="t-green">1 reasoning</span>',
+          delay: 800,
+        },
+      ];
+
+      function runTermDemo() {
+        var term = document.getElementById("demo-term");
+        term.innerHTML = "";
+        var stepIdx = 0;
+
+        function nextStep() {
+          if (stepIdx >= termSteps.length) {
+            // Add blinking cursor, then restart
+            var cursorLine = document.createElement("div");
+            cursorLine.innerHTML =
+              '<span class="info">Waiting for events...</span> <span class="cursor"></span>';
+            cursorLine.style.opacity = "1";
+            term.appendChild(cursorLine);
+            setTimeout(runTermDemo, 4000);
+            return;
+          }
+
+          var step = termSteps[stepIdx];
+          stepIdx++;
+
+          // Regular line - fade in
+          var line = document.createElement("div");
+          line.className = "line";
+          if (step.html === "") {
+            line.innerHTML = "&nbsp;";
+          } else {
+            line.innerHTML = step.html;
+          }
+          term.appendChild(line);
+          // Trigger reflow, then add visible class
+          requestAnimationFrame(function () {
+            requestAnimationFrame(function () {
+              line.classList.add("visible");
+            });
+          });
+          setTimeout(nextStep, step.delay);
+        }
+
+        nextStep();
+      }
+
+      // Start when demo scrolls into view
+      (function () {
+        var demoTerm = document.getElementById("demo-term");
+        if (!demoTerm) return;
+        var demoObserver = new IntersectionObserver(
+          function (entries) {
+            entries.forEach(function (e) {
+              if (e.isIntersecting) {
+                runTermDemo();
+                demoObserver.unobserve(e.target);
+              }
+            });
+          },
+          { threshold: 0.1 },
+        );
+        demoObserver.observe(demoTerm);
+      })();
+    </script>
+  </body>
+</html>
