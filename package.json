@@ -57,7 +57,7 @@
     "@copilotkit/a2ui-renderer": "^1.56.5",
     "@copilotkit/react-core": "^1.56.5",
     "@testing-library/react": "^16.0.0",
-    "@types/react": "^19.0.0",
+    "@types/react": "^19.2.15",
     "@types/react-dom": "^19.0.0",
     "@types/vscode": "^1.90.0",
     "@vscode/vsce": "^3.0.0",
