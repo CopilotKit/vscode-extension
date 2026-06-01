@@ -48,7 +48,7 @@
     "ignore": "^7.0.5",
     "openai": "^6.37.0",
     "oxc-parser": "^0.130.0",
-    "rolldown": "^1.0.1",
+    "rolldown": "^1.0.3",
     "tailwindcss": "^4.1.0",
     "zod": "^4.4.3",
     "zod-to-json-schema": "^3.25.2"
